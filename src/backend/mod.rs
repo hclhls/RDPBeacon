@@ -74,7 +74,6 @@ pub fn make_backend(kind: BackendKind) -> Result<Box<dyn Backend>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::BackendKind;
 
     #[test]
     fn detects_x11() {

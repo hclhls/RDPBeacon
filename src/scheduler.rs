@@ -44,12 +44,16 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
 
     if b.supports_focus() {
         let prev_window = b.active_window()?;
-        b.focus(horizon_win)?;
-        b.send_beacon(cfg.mode, &cfg.key)?;
-        std::thread::sleep(Duration::from_millis(100));
-        if let Some(prev) = prev_window {
-            if let Err(e) = b.focus(prev) {
-                log::warn!("Failed to restore focus to previous window {prev}: {e}");
+        if prev_window == Some(horizon_win) {
+            b.send_beacon(cfg.mode, &cfg.key)?;
+        } else {
+            b.focus(horizon_win)?;
+            b.send_beacon(cfg.mode, &cfg.key)?;
+            std::thread::sleep(Duration::from_millis(100));
+            if let Some(prev) = prev_window {
+                if let Err(e) = b.focus(prev) {
+                    log::warn!("Failed to restore focus to previous window {prev}: {e}");
+                }
             }
         }
     } else {
@@ -97,7 +101,8 @@ pub fn run_loop(b: &dyn Backend, cfg: &Config, stop: &AtomicBool) -> Result<()> 
                 );
                 if cfg.max_misses > 0 && consecutive_misses >= cfg.max_misses {
                     anyhow::bail!(
-                        "Omnissa Horizon Client window not found after {} consecutive attempts",
+                        "Window matching '{}' not found after {} consecutive attempts",
+                        cfg.window_match,
                         cfg.max_misses
                     );
                 }
@@ -268,6 +273,32 @@ mod tests {
     }
 
     #[test]
+    fn skips_focus_when_already_active() {
+        let mut mock = MockBackend::new();
+        mock.idle_time = Duration::from_secs(300);
+        mock.horizon_window = Some(101);
+        mock.active_window = Some(101);
+        mock.supports_focus = true;
+        let cfg = Config::default();
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let relevant: Vec<_> = mock.calls().into_iter().filter(|c| matches!(
+            c,
+            MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
+        )).collect();
+
+        assert_eq!(
+            relevant,
+            vec![
+                MockCall::ActiveWindow,
+                MockCall::SendBeacon(cfg.mode, cfg.key.clone()),
+            ]
+        );
+    }
+
+    #[test]
     fn no_focus_calls_when_unsupported() {
         let mut mock = MockBackend::new();
         mock.idle_time = Duration::from_secs(300);
@@ -370,9 +401,12 @@ mod tests {
         let res = run_loop(&mock, &cfg, &stop);
         assert!(res.is_err(), "expected run_loop to exit with error after max misses");
         let err_msg = format!("{:#}", res.unwrap_err());
-        assert!(
-            err_msg.contains("consecutive") || err_msg.contains("misses") || err_msg.contains("not found"),
-            "unexpected error message: {err_msg}"
+        assert_eq!(
+            err_msg,
+            format!(
+                "Window matching '{}' not found after {} consecutive attempts",
+                cfg.window_match, cfg.max_misses
+            )
         );
     }
 

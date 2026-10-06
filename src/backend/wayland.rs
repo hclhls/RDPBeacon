@@ -224,6 +224,7 @@ impl Backend for WaylandBackend {
                 let up = InputEvent::new_now(EventType::KEY, code.code(), 0);
                 dev.emit(&[down])
                     .context("Failed to emit key down event via uinput")?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
                 dev.emit(&[up])
                     .context("Failed to emit key up event via uinput")?;
             }
@@ -240,6 +241,7 @@ impl Backend for WaylandBackend {
                 );
                 dev.emit(&[move_right])
                     .context("Failed to emit relative mouse +1 px motion via uinput")?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
                 dev.emit(&[move_left])
                     .context("Failed to emit relative mouse -1 px motion via uinput")?;
             }

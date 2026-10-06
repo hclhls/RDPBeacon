@@ -66,8 +66,6 @@ pub struct X11Backend {
     atom_net_client_list: Atom,
     atom_net_active_window: Atom,
     atom_net_wm_name: Atom,
-    #[allow(dead_code)]
-    atom_utf8_string: Atom,
 }
 
 impl X11Backend {
@@ -93,10 +91,6 @@ impl X11Backend {
             .intern_atom(false, b"_NET_WM_NAME")?
             .reply()?
             .atom;
-        let atom_utf8_string = conn
-            .intern_atom(false, b"UTF8_STRING")?
-            .reply()?
-            .atom;
 
         Ok(Self {
             conn,
@@ -104,7 +98,6 @@ impl X11Backend {
             atom_net_client_list,
             atom_net_active_window,
             atom_net_wm_name,
-            atom_utf8_string,
         })
     }
 
@@ -271,6 +264,8 @@ impl Backend for X11Backend {
                     0,
                     0,
                 )?;
+                self.conn.flush()?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
                 xtest::fake_input(
                     &self.conn,
                     xproto::KEY_RELEASE_EVENT,
@@ -294,6 +289,8 @@ impl Backend for X11Backend {
                     0,
                     0,
                 )?;
+                self.conn.flush()?;
+                std::thread::sleep(std::time::Duration::from_millis(10));
                 xtest::fake_input(
                     &self.conn,
                     xproto::MOTION_NOTIFY_EVENT,

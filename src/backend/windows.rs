@@ -11,8 +11,8 @@ use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 #[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MOUSEINPUT, MOUSE_EVENT_FLAGS,
-    MOUSEEVENTF_MOVE, VIRTUAL_KEY, VK_F15,
+    KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MOUSEINPUT,
+    MOUSEEVENTF_MOVE, VIRTUAL_KEY,
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -202,7 +202,7 @@ impl Backend for WindowsBackend {
             Mode::Key => {
                 let vk = parse_virtual_key(key)
                     .map(VIRTUAL_KEY)
-                    .unwrap_or(VK_F15);
+                    .ok_or_else(|| anyhow::anyhow!("Unknown or unsupported key: {key}"))?;
                 let down = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 {
@@ -228,10 +228,17 @@ impl Backend for WindowsBackend {
                     },
                 };
                 let sent = unsafe {
-                    SendInput(&[down, up], std::mem::size_of::<INPUT>() as i32)
+                    SendInput(&[down], std::mem::size_of::<INPUT>() as i32)
                 };
-                if sent != 2 {
-                    anyhow::bail!("SendInput failed to send keyboard events (sent {sent} of 2)");
+                if sent != 1 {
+                    anyhow::bail!("SendInput failed to send keyboard down event (sent {sent} of 1)");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+                let sent = unsafe {
+                    SendInput(&[up], std::mem::size_of::<INPUT>() as i32)
+                };
+                if sent != 1 {
+                    anyhow::bail!("SendInput failed to send keyboard up event (sent {sent} of 1)");
                 }
             }
             Mode::Mouse => {
@@ -262,10 +269,17 @@ impl Backend for WindowsBackend {
                     },
                 };
                 let sent = unsafe {
-                    SendInput(&[move_right, move_back], std::mem::size_of::<INPUT>() as i32)
+                    SendInput(&[move_right], std::mem::size_of::<INPUT>() as i32)
                 };
-                if sent != 2 {
-                    anyhow::bail!("SendInput failed to send mouse events (sent {sent} of 2)");
+                if sent != 1 {
+                    anyhow::bail!("SendInput failed to send mouse move event (sent {sent} of 1)");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+                let sent = unsafe {
+                    SendInput(&[move_back], std::mem::size_of::<INPUT>() as i32)
+                };
+                if sent != 1 {
+                    anyhow::bail!("SendInput failed to send mouse return event (sent {sent} of 1)");
                 }
             }
         }
