@@ -48,13 +48,14 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
             b.send_beacon(cfg.mode, &cfg.key)?;
         } else {
             b.focus(horizon_win)?;
-            b.send_beacon(cfg.mode, &cfg.key)?;
+            let beacon_res = b.send_beacon(cfg.mode, &cfg.key);
             std::thread::sleep(Duration::from_millis(100));
             if let Some(prev) = prev_window {
                 if let Err(e) = b.focus(prev) {
                     log::warn!("Failed to restore focus to previous window {prev}: {e}");
                 }
             }
+            beacon_res?;
         }
     } else {
         b.send_beacon(cfg.mode, &cfg.key)?;
@@ -90,30 +91,34 @@ pub fn run_loop(b: &dyn Backend, cfg: &Config, stop: &AtomicBool) -> Result<()> 
             break;
         }
 
-        let outcome = run_cycle(b, cfg)?;
-        match outcome {
-            CycleOutcome::SkippedNoWindow => {
-                consecutive_misses += 1;
-                log::warn!(
-                    "Horizon window not found ({}/{})",
-                    consecutive_misses,
-                    cfg.max_misses
-                );
-                if cfg.max_misses > 0 && consecutive_misses >= cfg.max_misses {
-                    anyhow::bail!(
-                        "Window matching '{}' not found after {} consecutive attempts",
-                        cfg.window_match,
+        match run_cycle(b, cfg) {
+            Ok(outcome) => match outcome {
+                CycleOutcome::SkippedNoWindow => {
+                    consecutive_misses += 1;
+                    log::warn!(
+                        "Horizon window not found ({}/{})",
+                        consecutive_misses,
                         cfg.max_misses
                     );
+                    if cfg.max_misses > 0 && consecutive_misses >= cfg.max_misses {
+                        anyhow::bail!(
+                            "Window matching '{}' not found after {} consecutive attempts",
+                            cfg.window_match,
+                            cfg.max_misses
+                        );
+                    }
                 }
-            }
-            CycleOutcome::Sent => {
-                consecutive_misses = 0;
-                log::info!("Beacon sent successfully");
-            }
-            CycleOutcome::SkippedActive => {
-                consecutive_misses = 0;
-                log::debug!("User active; skipped cycle");
+                CycleOutcome::Sent => {
+                    consecutive_misses = 0;
+                    log::info!("Beacon sent successfully");
+                }
+                CycleOutcome::SkippedActive => {
+                    consecutive_misses = 0;
+                    log::debug!("User active; skipped cycle");
+                }
+            },
+            Err(e) => {
+                log::error!("Cycle execution failed: {e:#}");
             }
         }
     }
@@ -146,6 +151,7 @@ mod tests {
         active_window: Option<WindowId>,
         supports_focus: bool,
         fail_focus_on: Option<WindowId>,
+        fail_send_beacon: bool,
         calls: Arc<Mutex<Vec<MockCall>>>,
     }
 
@@ -157,6 +163,7 @@ mod tests {
                 active_window: Some(200),
                 supports_focus: true,
                 fail_focus_on: None,
+                fail_send_beacon: false,
                 calls: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -194,6 +201,9 @@ mod tests {
 
         fn send_beacon(&self, mode: Mode, key: &str) -> Result<()> {
             self.calls.lock().unwrap().push(MockCall::SendBeacon(mode, key.to_string()));
+            if self.fail_send_beacon {
+                anyhow::bail!("synthetic beacon injection error");
+            }
             Ok(())
         }
 
@@ -438,5 +448,64 @@ mod tests {
             "loop took too long to exit: {:?}",
             elapsed
         );
+    }
+
+    #[test]
+    fn restore_focus_runs_even_if_send_beacon_fails() {
+        let mut mock = MockBackend::new();
+        mock.horizon_window = Some(100);
+        mock.active_window = Some(200);
+        mock.supports_focus = true;
+        mock.fail_send_beacon = true;
+        let cfg = Config::default();
+
+        let res = run_cycle(&mock, &cfg);
+        assert!(res.is_err(), "cycle should fail when beacon injection fails");
+
+        let calls = mock.calls();
+        assert_eq!(
+            calls,
+            vec![
+                MockCall::IdleTime,
+                MockCall::FindHorizonWindow("Omnissa Horizon Client".to_string()),
+                MockCall::SupportsFocus,
+                MockCall::ActiveWindow,
+                MockCall::Focus(100),
+                MockCall::SendBeacon(Mode::Key, "F15".to_string()),
+                MockCall::Focus(200),
+            ],
+            "focus should be restored to previous window even if beacon injection errors"
+        );
+    }
+
+    #[test]
+    fn run_loop_continues_after_cycle_error() {
+        let mut mock = MockBackend::new();
+        mock.idle_time = Duration::from_secs(300);
+        mock.horizon_window = Some(100);
+        mock.active_window = Some(200);
+        mock.supports_focus = true;
+        mock.fail_send_beacon = true;
+
+        let mut cfg = Config::default();
+        cfg.interval = Duration::from_millis(100);
+        cfg.jitter = Duration::from_millis(0);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = Arc::clone(&stop);
+        let mock_arc = Arc::new(mock);
+        let mock_clone = Arc::clone(&mock_arc);
+
+        let handle = std::thread::spawn(move || {
+            run_loop(mock_clone.as_ref(), &cfg, &stop_clone)
+        });
+
+        // Loop clamps sleep to min 1s; sleep 1.2s to let at least one error cycle execute and continue
+        std::thread::sleep(Duration::from_millis(1200));
+        stop.store(true, Ordering::Relaxed);
+
+        let res = handle.join().expect("thread should not panic");
+        assert!(res.is_ok(), "run_loop should not crash on single cycle errors");
+        assert!(!mock_arc.calls().is_empty(), "loop should have executed a cycle despite errors");
     }
 }

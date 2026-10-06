@@ -53,13 +53,27 @@ pub fn resolve_backend_kind(
     cli_backend: Option<BackendKind>,
     cfg_backend: Option<BackendKind>,
 ) -> anyhow::Result<BackendKind> {
-    match cli_backend.or(cfg_backend) {
-        Some(kind) => Ok(kind),
-        None => backend::detect_backend_kind(
-            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
-            std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
-            cfg!(windows),
-        ),
+    if let Some(kind) = cli_backend.or(cfg_backend) {
+        return Ok(kind);
+    }
+
+    let session_type = std::env::var("XDG_SESSION_TYPE").ok();
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").ok();
+
+    match backend::detect_backend_kind(
+        session_type.as_deref(),
+        wayland_display.as_deref(),
+        cfg!(windows),
+    ) {
+        Ok(kind) => Ok(kind),
+        Err(e) => {
+            // Fallback: if DISPLAY is set under Linux, default to X11 (useful for systemd --user or startx)
+            if !cfg!(windows) && std::env::var("DISPLAY").map_or(false, |d| !d.trim().is_empty()) {
+                Ok(BackendKind::X11)
+            } else {
+                Err(e)
+            }
+        }
     }
 }
 
@@ -107,9 +121,19 @@ fn main() -> anyhow::Result<()> {
             println!("Backend: {:?}", backend_kind);
             let backend = backend::make_backend(backend_kind)?;
             let idle = backend.idle_time()?;
-            println!("Idle time: {:?}", idle);
+            if backend_kind == BackendKind::Wayland && idle == Duration::MAX {
+                println!("Idle time: unknown (idle detection not supported on Wayland)");
+            } else {
+                println!("Idle time: {:?}", idle);
+            }
             match backend.find_horizon_window(&cfg.window_match)? {
-                Some(id) => println!("Horizon window: found (ID: {id})"),
+                Some(id) => {
+                    if backend_kind == BackendKind::Wayland {
+                        println!("Horizon window: assumed active (Wayland window inspection is isolated)");
+                    } else {
+                        println!("Horizon window: found (ID: {id})");
+                    }
+                }
                 None => println!("Horizon window: not found"),
             }
         }

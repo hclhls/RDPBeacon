@@ -173,6 +173,10 @@ impl WaylandBackend {
             .build()
             .map_err(wrap_uinput_err)?;
 
+        // Give the compositor/libinput a brief moment to detect the new uinput device
+        // before immediately injecting events (especially important for `once` command).
+        std::thread::sleep(Duration::from_millis(300));
+
         Ok(Self {
             device: Mutex::new(Some(device)),
         })
@@ -190,7 +194,7 @@ impl Backend for WaylandBackend {
     fn idle_time(&self) -> Result<Duration> {
         if !WARNED_IDLE.swap(true, Ordering::Relaxed) {
             log::warn!(
-                "Wayland idle time detection (ext-idle-notify) is not available; defaulting to idle (Duration::MAX) so beacon always fires"
+                "Wayland idle detection is not implemented; firing beacon unconditionally at configured interval"
             );
         }
         Ok(Duration::MAX)

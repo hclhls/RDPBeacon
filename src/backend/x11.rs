@@ -167,6 +167,13 @@ impl X11Backend {
             }
         }
 
+        // On Linux / evdev keyboards, keycode 193 (evdev KEY_F15 185 + 8) is often mapped
+        // to XF86Launch6 (0x1008ff46) rather than XK_F15 (0xffcc). If requesting F15 and keycode
+        // 193 is valid, use keycode 193 directly to avoid altering user keymaps.
+        if keysym == 0xffcc && (min..=max).contains(&193) {
+            return Ok(193);
+        }
+
         if let Some(keycode) = unused_keycode {
             let mut new_keysyms = vec![0; per_key];
             new_keysyms[0] = keysym;
@@ -245,6 +252,26 @@ impl Backend for X11Backend {
         let event_mask = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
         self.conn.send_event(false, self.root, event_mask, event)?;
         self.conn.flush()?;
+
+        // Wait up to 500 ms for window manager to confirm focus activation
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        while std::time::Instant::now() < deadline {
+            if let Ok(Some(active)) = self.active_window() {
+                if active == w {
+                    return Ok(());
+                }
+            }
+            if let Ok(cookie) = self.conn.get_input_focus() {
+                if let Ok(reply) = cookie.reply() {
+                    if reply.focus == w as u32 {
+                        return Ok(());
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(15));
+        }
+
+        log::debug!("Window {w} did not confirm focus activation within timeout; continuing");
         Ok(())
     }
 

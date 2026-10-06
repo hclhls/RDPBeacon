@@ -15,24 +15,30 @@ jitter = "20s"
 # Minimum user idle duration required before sending a beacon.
 # If the user was active within this window, the cycle is skipped because
 # user activity has already reset the remote session's idle timer.
+# Note: On Wayland, cross-compositor idle detection is not available, so
+# the beacon fires at the configured interval unconditionally.
 # Default: "3m" (180 seconds)
 idle_threshold = "3m"
 
 # Keystroke to simulate when `mode = "key"`.
-# Supported values include standard function keys (F1-F24), Space, Enter, Return,
-# Esc, Tab, Backspace, arrow keys, or hex codes (e.g., 0x7E).
-# F15 is recommended as it is typically unmapped and harmless in most applications.
+# Supported values include standard function keys (F1-F24), Space, Enter,
+# Esc, Tab, Backspace, arrow keys. F15 is strongly recommended as it is
+# harmless and unmapped in virtually all desktop environments and remote VMs.
+# Note: Raw hex codes are platform-specific (VK code on Windows, keysym on X11,
+# evdev code on Wayland). Using named keys (e.g., "F15") is recommended.
 # Default: "F15"
 key = "F15"
 
 # Beacon injection mode: "key" or "mouse".
-# - "key": Simulates a single key press and release of `key`.
-# - "mouse": Nudges the mouse cursor by +1 pixel relative and immediately restores it (-1 pixel).
+# - "key": Simulates a single key press and release of `key` into the Horizon session.
+# - "mouse": Nudges the mouse cursor by +1 pixel relative and restores it (-1 pixel).
+#   (Note: relative mouse events affect the window under the cursor, whereas key mode
+#   targets the focused Horizon window).
 # Default: "key"
 mode = "key"
 
 # Case-insensitive substring used to locate the Omnissa Horizon Client window.
-# In X11 and Windows backends, this is matched against window titles and classes.
+# In X11 this matches window title or WM_CLASS; in Windows this matches window title.
 # Re-evaluated on every cycle so window restarts or title changes are handled gracefully.
 # Default: "Omnissa Horizon Client"
 window_match = "Omnissa Horizon Client"

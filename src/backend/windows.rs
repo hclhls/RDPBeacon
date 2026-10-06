@@ -10,8 +10,8 @@ use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 #[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MOUSEINPUT,
+    GetLastInputInfo, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
+    KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MAPVK_VK_TO_VSC, MOUSEINPUT,
     MOUSEEVENTF_MOVE, VIRTUAL_KEY,
 };
 #[cfg(windows)]
@@ -203,12 +203,13 @@ impl Backend for WindowsBackend {
                 let vk = parse_virtual_key(key)
                     .map(VIRTUAL_KEY)
                     .ok_or_else(|| anyhow::anyhow!("Unknown or unsupported key: {key}"))?;
+                let scan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
                 let down = INPUT {
                     r#type: INPUT_KEYBOARD,
                     Anonymous: INPUT_0 {
                         ki: KEYBDINPUT {
                             wVk: vk,
-                            wScan: 0,
+                            wScan: scan,
                             dwFlags: KEYBD_EVENT_FLAGS(0),
                             time: 0,
                             dwExtraInfo: 0,
@@ -220,7 +221,7 @@ impl Backend for WindowsBackend {
                     Anonymous: INPUT_0 {
                         ki: KEYBDINPUT {
                             wVk: vk,
-                            wScan: 0,
+                            wScan: scan,
                             dwFlags: KEYEVENTF_KEYUP,
                             time: 0,
                             dwExtraInfo: 0,

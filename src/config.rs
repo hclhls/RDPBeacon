@@ -24,7 +24,7 @@ pub enum BackendKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub interval: Duration,
@@ -128,6 +128,25 @@ mod tests {
         assert!(
             err_msg.contains("interval"),
             "error message '{err_msg}' should name the malformed field 'interval'"
+        );
+    }
+
+    #[test]
+    fn unknown_fields_return_error() {
+        let toml_str = r#"
+            unknown_setting = "value"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("rdpbeacon_test_unknown_{}.toml", std::process::id()));
+        std::fs::write(&path, toml_str).unwrap();
+        let res = Config::load(Some(&path));
+        let _ = std::fs::remove_file(&path);
+
+        assert!(res.is_err(), "expected error for unknown config fields");
+        let err_msg = format!("{:#}", res.unwrap_err());
+        assert!(
+            err_msg.contains("unknown_setting"),
+            "error message '{err_msg}' should mention 'unknown_setting'"
         );
     }
 }

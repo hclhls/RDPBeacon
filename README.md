@@ -99,10 +99,10 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | :--- | :--- | :--- | :--- |
 | `interval` | duration | `"4m"` | Base interval between beacon cycles (e.g., `"4m"`, `"240s"`). |
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
-| `idle_threshold` | duration | `"3m"` | Minimum user inactivity time before a beacon is fired. If you have been active within this duration, the cycle is skipped. |
-| `key` | string | `"F15"` | Key to simulate when `mode = "key"`. Supports `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys, or hex codes (e.g., `0x7E`). |
-| `mode` | string | `"key"` | Beacon mode: `"key"` (presses and releases `key`) or `"mouse"` (nudges cursor +1 px and -1 px). |
-| `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title or class. Re-evaluated every cycle. |
+| `idle_threshold` | duration | `"3m"` | Minimum user inactivity time before a beacon is fired. If you have been active within this duration, the cycle is skipped (on X11 & Windows). |
+| `key` | string | `"F15"` | Key to simulate when `mode = "key"`. Supports `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (Named keys are portable across OSes; hex values are platform-specific). |
+| `mode` | string | `"key"` | Beacon mode: `"key"` (presses and releases `key` in Horizon) or `"mouse"` (nudges cursor +1 px and -1 px). |
+| `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title (and WM_CLASS on X11). Re-evaluated every cycle. |
 | `max_misses` | integer | `5` | Maximum consecutive cycles the Horizon Client window can be missing before `run` exits with an error. |
 | `backend` | string | `None` (auto) | Display backend override (`"x11"`, `"wayland"`, or `"windows"`). |
 
@@ -133,12 +133,11 @@ By default, `/dev/uinput` requires root permissions. To run RDPBeacon as a stand
 
 4. Log out and back into your session (or run `newgrp input`) for group changes to take effect.
 
-### Wayland Limitation
+### Wayland Limitations
 
 > [!NOTE]
-> **No Focus Switching on Wayland**: Because Wayland does not permit client applications to inspect or focus windows belonging to other applications, RDPBeacon cannot automatically bring the Omnissa Horizon Client window to the foreground on Wayland.
-> 
-> Keystrokes or mouse nudges are sent to the currently active window. It is recommended to keep your Horizon session focused or set `mode = "mouse"` so that harmless relative cursor movements are used instead of keystrokes.
+> - **No Focus Switching on Wayland**: Because Wayland does not permit client applications to inspect or focus windows belonging to other applications, RDPBeacon cannot automatically bring the Omnissa Horizon Client window to the foreground on Wayland. Synthetic events are delivered to the currently active window.
+> - **No Cross-Compositor Idle Detection**: Wayland compositor isolation also prevents querying global user inactivity without compositor-specific protocols. On Wayland, beacons fire unconditionally at the configured interval regardless of local activity.
 
 ---
 
@@ -147,6 +146,7 @@ By default, `/dev/uinput` requires root permissions. To run RDPBeacon as a stand
 > [!IMPORTANT]
 > - **Organizational Policy**: RDPBeacon is an own-use productivity tool. You are responsible for ensuring that running this utility complies with your organization's IT security, Acceptable Use, and remote work policies.
 > - **Input Inactivity vs. Hard Session Limits**: RDPBeacon only simulates local user input to prevent **inactivity/idle timeouts**. It does **not** and cannot bypass hard administrative session lifetime limits (such as an 8-hour maximum session duration enforced by the Horizon Connection Server or identity provider).
+> - **Local Screen Auto-Lock / Screensaver**: Because beacons inject real operating system input, running RDPBeacon also resets your local desktop's idle timer, which may prevent local screen savers or auto-lock from engaging while the daemon is running. Always manually lock your screen (e.g. `Win+L` or `Super+L`) when stepping away from your workstation.
 
 ---
 
@@ -156,7 +156,7 @@ Follow this checklist to verify your RDPBeacon installation:
 
 1. **Check Environment (`rdpbeacon check`)**:
    - Ensure the detected backend matches your desktop session (`X11`, `Wayland`, or `Windows`).
-   - Confirm that the reported idle time increases when your hands are off the keyboard/mouse.
+   - Confirm that the reported idle time increases when your hands are off the keyboard/mouse (X11 & Windows).
    - Start Omnissa Horizon Client and confirm `rdpbeacon check` reports `Horizon window: found`.
 
 2. **Test Single Beacon (`rdpbeacon once`)**:
@@ -166,10 +166,16 @@ Follow this checklist to verify your RDPBeacon installation:
    - On Wayland: verify that the beacon event is emitted (e.g., using `wev` or by observing a 1 px mouse nudge in mouse mode).
 
 3. **Test Daemon Loop (`rdpbeacon run`)**:
-   - Run `rdpbeacon` with a short interval (e.g. `rdpbeacon --config <(echo 'interval = "10s"\nidle_threshold = "5s"\njitter = "2s"') run`).
-   - Move your mouse or type: observe that cycles are skipped with "User active".
+   - Run `rdpbeacon` with a short interval:
+     ```bash
+     rdpbeacon --config <(printf 'interval = "10s"\nidle_threshold = "5s"\njitter = "2s"\n') run
+     ```
+   - On X11/Windows, move your mouse or type: observe that cycles are skipped with "User active".
    - Leave the system idle for > 5 seconds: observe that the beacon fires and resets the Horizon Client idle timeout.
    - Press `Ctrl-C`: verify the daemon shuts down immediately and cleanly.
+
+4. **Verify Remote VM Session**:
+   - Confirm that the remote desktop session within Omnissa Horizon Client remains active and does not disconnect due to inactivity.
 
 ---
 
