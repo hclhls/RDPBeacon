@@ -7,6 +7,8 @@ use crate::config::{BackendKind, Mode};
 pub mod x11;
 #[cfg(target_os = "linux")]
 pub mod wayland;
+#[cfg(any(windows, test))]
+pub mod windows;
 
 pub type WindowId = u64;
 
@@ -60,6 +62,11 @@ pub fn make_backend(kind: BackendKind) -> Result<Box<dyn Backend>> {
         BackendKind::X11 => Ok(Box::new(x11::X11Backend::new()?)),
         #[cfg(target_os = "linux")]
         BackendKind::Wayland => Ok(Box::new(wayland::WaylandBackend::new()?)),
+        #[cfg(windows)]
+        BackendKind::Windows => Ok(Box::new(windows::WindowsBackend::new()?)),
+        #[cfg(not(windows))]
+        BackendKind::Windows => anyhow::bail!("Windows backend is only available on Windows"),
+        #[allow(unreachable_patterns)]
         _ => anyhow::bail!("{kind:?} backend not yet implemented"),
     }
 }
@@ -109,6 +116,17 @@ mod tests {
 
         let kind3 = detect_backend_kind(Some("wayland"), None, true).unwrap();
         assert_eq!(kind3, BackendKind::Windows);
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn windows_backend_not_available_on_non_windows() {
+        match make_backend(BackendKind::Windows) {
+            Ok(_) => panic!("Expected error on non-Windows"),
+            Err(err) => {
+                assert!(err.to_string().contains("Windows backend is only available on Windows"));
+            }
+        }
     }
 }
 
