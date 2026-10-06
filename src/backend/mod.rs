@@ -5,6 +5,8 @@ use crate::config::{BackendKind, Mode};
 
 #[cfg(target_os = "linux")]
 pub mod x11;
+#[cfg(target_os = "linux")]
+pub mod wayland;
 
 pub type WindowId = u64;
 
@@ -56,6 +58,8 @@ pub fn make_backend(kind: BackendKind) -> Result<Box<dyn Backend>> {
     match kind {
         #[cfg(target_os = "linux")]
         BackendKind::X11 => Ok(Box::new(x11::X11Backend::new()?)),
+        #[cfg(target_os = "linux")]
+        BackendKind::Wayland => Ok(Box::new(wayland::WaylandBackend::new()?)),
         _ => anyhow::bail!("{kind:?} backend not yet implemented"),
     }
 }
