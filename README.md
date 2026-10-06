@@ -170,3 +170,9 @@ Follow this checklist to verify your RDPBeacon installation:
    - Move your mouse or type: observe that cycles are skipped with "User active".
    - Leave the system idle for > 5 seconds: observe that the beacon fires and resets the Horizon Client idle timeout.
    - Press `Ctrl-C`: verify the daemon shuts down immediately and cleanly.
+
+---
+
+## License
+
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
