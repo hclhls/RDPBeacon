@@ -1,0 +1,51 @@
+# RDPBeacon Example Configuration
+# Copy this file to config.toml and customize it as needed.
+# All durations support human-friendly formats (e.g., "4m", "240s", "3m 30s", "500ms").
+
+# Interval between beacon cycles.
+# Default: "4m" (240 seconds)
+interval = "4m"
+
+# Random jitter applied to the interval (+/- jitter).
+# The actual sleep duration is chosen uniformly in [interval - jitter, interval + jitter],
+# clamped to a minimum duration of 1s.
+# Default: "20s"
+jitter = "20s"
+
+# Minimum user idle duration required before sending a beacon.
+# If the user was active within this window, the cycle is skipped because
+# user activity has already reset the remote session's idle timer.
+# Default: "3m" (180 seconds)
+idle_threshold = "3m"
+
+# Keystroke to simulate when `mode = "key"`.
+# Supported values include standard function keys (F1-F24), Space, Enter, Return,
+# Esc, Tab, Backspace, arrow keys, or hex codes (e.g., 0x7E).
+# F15 is recommended as it is typically unmapped and harmless in most applications.
+# Default: "F15"
+key = "F15"
+
+# Beacon injection mode: "key" or "mouse".
+# - "key": Simulates a single key press and release of `key`.
+# - "mouse": Nudges the mouse cursor by +1 pixel relative and immediately restores it (-1 pixel).
+# Default: "key"
+mode = "key"
+
+# Case-insensitive substring used to locate the Omnissa Horizon Client window.
+# In X11 and Windows backends, this is matched against window titles and classes.
+# Re-evaluated on every cycle so window restarts or title changes are handled gracefully.
+# Default: "Omnissa Horizon Client"
+window_match = "Omnissa Horizon Client"
+
+# Number of consecutive cycles the Horizon Client window may be missing before
+# the daemon shuts down with an error. Set to 0 to disable or increase if Horizon
+# takes longer to start or reconnect.
+# Default: 5
+max_misses = 5
+
+# Display backend override.
+# When omitted or commented out, RDPBeacon automatically detects the backend
+# from the environment (e.g., XDG_SESSION_TYPE, WAYLAND_DISPLAY, or OS).
+# Options: "x11", "wayland", "windows"
+# Default: auto-detect (None)
+# backend = "x11"
