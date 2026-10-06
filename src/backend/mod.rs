@@ -3,6 +3,9 @@ use anyhow::Result;
 
 use crate::config::{BackendKind, Mode};
 
+#[cfg(target_os = "linux")]
+pub mod x11;
+
 pub type WindowId = u64;
 
 pub trait Backend {
@@ -50,7 +53,11 @@ pub fn detect_backend_kind(
 }
 
 pub fn make_backend(kind: BackendKind) -> Result<Box<dyn Backend>> {
-    anyhow::bail!("{kind:?} backend not yet implemented")
+    match kind {
+        #[cfg(target_os = "linux")]
+        BackendKind::X11 => Ok(Box::new(x11::X11Backend::new()?)),
+        _ => anyhow::bail!("{kind:?} backend not yet implemented"),
+    }
 }
 
 #[cfg(test)]
