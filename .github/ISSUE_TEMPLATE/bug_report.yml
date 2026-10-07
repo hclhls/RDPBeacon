@@ -1,0 +1,77 @@
+name: Bug Report
+description: Create a report to help us improve RDPBeacon
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please check existing issues before submitting to avoid duplicates.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: E.g., Window focus was restored to the wrong window...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Operating System & Display Backend
+      description: Which environment are you running on?
+      options:
+        - Linux (X11)
+        - Linux (Wayland)
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: horizon-version
+    attributes:
+      label: Horizon Client Version
+      description: E.g., Omnissa Horizon Client 2406 / VMware Horizon Client 2312
+      placeholder: Omnissa Horizon Client 2406
+    validations:
+      required: false
+
+  - type: input
+    id: rdpbeacon-version
+    attributes:
+      label: RDPBeacon Version / Git Commit
+      description: E.g., 0.1.0 or commit hash
+      placeholder: rdpbeacon 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Start Omnissa Horizon Client and connect to desktop
+        2. Run `rdpbeacon -v run`
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: RDPBeacon Debug Logs
+      description: Output from running `rdpbeacon -v check` or `rdpbeacon -v once`
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context or screenshots about the problem here.
+    validations:
+      required: false

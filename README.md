@@ -1,5 +1,10 @@
 # RDPBeacon
 
+[![CI](https://github.com/hclhls/RDPBeacon/actions/workflows/ci.yml/badge.svg)](https://github.com/hclhls/RDPBeacon/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](#)
+
 A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **Omnissa Horizon Client** sessions active on your local machine by periodically sending a small, harmless simulated input ("beacon"), preventing idle timeout disconnects.
 
 ---
@@ -38,8 +43,8 @@ RDPBeacon is built as a single Rust crate with a decoupled, trait-based backend 
 ### Building from Source
 
 ```bash
-git clone https://github.com/example/rdpbeacon.git
-cd rdpbeacon
+git clone https://github.com/hclhls/RDPBeacon.git
+cd RDPBeacon
 cargo build --release
 ```
 
@@ -177,6 +182,18 @@ Follow this checklist to verify your RDPBeacon installation:
 
 4. **Verify Remote VM Session**:
    - Confirm that the remote desktop session within Omnissa Horizon Client remains active and does not disconnect due to inactivity.
+
+---
+
+## Contributing
+
+Contributions, bug reports, and feature requests are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, development guidelines, and pull request procedures.
+
+---
+
+## Security
+
+If you discover a potential security issue, please refer to our [Security Policy](SECURITY.md) for reporting guidelines.
 
 ---
 
