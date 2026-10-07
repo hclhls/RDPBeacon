@@ -27,14 +27,6 @@ pub fn next_sleep(cfg: &Config, rng: &mut impl Rng) -> Duration {
 
 pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
     let idle = b.idle_time()?;
-    if idle < cfg.idle_threshold {
-        log::debug!(
-            "User active (idle time {:?} < threshold {:?}); skipping beacon",
-            idle,
-            cfg.idle_threshold
-        );
-        return Ok(CycleOutcome::SkippedActive);
-    }
 
     let horizon_win = b.find_horizon_window(&cfg.window_match)?;
     let Some(horizon_win) = horizon_win else {
@@ -42,8 +34,35 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
         return Ok(CycleOutcome::SkippedNoWindow);
     };
 
-    if b.supports_focus() {
-        let prev_window = b.active_window()?;
+    let supports_focus = b.supports_focus();
+    let prev_window = if supports_focus {
+        b.active_window()?
+    } else {
+        None
+    };
+
+    // If Horizon is currently the active window, local user input directly keeps
+    // the remote session active. We only skip the beacon if the user is actively
+    // working inside Horizon. If Horizon is in the background, local activity in
+    // other applications does not reach Horizon, so background sessions must still
+    // be kept alive with beacons.
+    let is_active_in_horizon = prev_window == Some(horizon_win);
+    let should_skip = if supports_focus {
+        is_active_in_horizon && idle < cfg.idle_threshold
+    } else {
+        idle < cfg.idle_threshold
+    };
+
+    if should_skip {
+        log::debug!(
+            "User active in Horizon window {horizon_win} (idle time {:?} < threshold {:?}); skipping beacon",
+            idle,
+            cfg.idle_threshold
+        );
+        return Ok(CycleOutcome::SkippedActive);
+    }
+
+    if supports_focus {
         if prev_window == Some(horizon_win) {
             log::debug!("Horizon window {horizon_win} is already focused");
             b.send_beacon(cfg.mode, &cfg.key)?;
@@ -222,9 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn skips_when_user_active() {
+    fn skips_when_user_active_in_horizon() {
         let mut mock = MockBackend::new();
         mock.idle_time = Duration::from_secs(60);
+        mock.horizon_window = Some(100);
+        mock.active_window = Some(100);
         let cfg = Config::default();
 
         let outcome = run_cycle(&mock, &cfg).unwrap();
@@ -232,6 +253,21 @@ mod tests {
 
         let calls = mock.calls();
         assert!(!calls.iter().any(|c| matches!(c, MockCall::SendBeacon(..))));
+    }
+
+    #[test]
+    fn sends_when_user_active_in_other_window_to_keep_background_horizon_alive() {
+        let mut mock = MockBackend::new();
+        mock.idle_time = Duration::from_secs(60);
+        mock.horizon_window = Some(100);
+        mock.active_window = Some(200);
+        let cfg = Config::default();
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let calls = mock.calls();
+        assert!(calls.iter().any(|c| matches!(c, MockCall::SendBeacon(..))));
     }
 
     #[test]

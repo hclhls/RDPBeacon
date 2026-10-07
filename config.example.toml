@@ -12,9 +12,10 @@ interval = "4m"
 # Default: "20s"
 jitter = "20s"
 
-# Minimum user idle duration required before sending a beacon.
-# If the user was active within this window, the cycle is skipped because
-# user activity has already reset the remote session's idle timer.
+# Minimum user idle duration required before sending a beacon when the Horizon
+# window is actively focused. If you are actively working inside Horizon, cycles
+# are skipped because your local input already keeps the remote session active.
+# Background sessions (when working in other local windows) are kept active regardless.
 # Note: On Wayland, cross-compositor idle detection is not available, so
 # the beacon fires at the configured interval unconditionally.
 # Default: "3m" (180 seconds)
