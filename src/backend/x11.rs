@@ -11,13 +11,8 @@ use x11rb::rust_connection::RustConnection;
 use crate::backend::{Backend, WindowId};
 use crate::config::Mode;
 
-pub fn title_matches(title: &str, class: &str, matcher: &str) -> bool {
-    if matcher.is_empty() {
-        return false;
-    }
-    let matcher_lower = matcher.to_lowercase();
-    title.to_lowercase().contains(&matcher_lower) || class.to_lowercase().contains(&matcher_lower)
-}
+#[allow(unused_imports)]
+pub use crate::backend::title_matches;
 
 pub fn keysym_from_str(key: &str) -> Option<u32> {
     let key_trimmed = key.trim();
@@ -204,15 +199,27 @@ impl Backend for X11Backend {
 
         let windows: Vec<u32> = reply.value32().map(|iter| iter.collect()).unwrap_or_default();
 
-        for w in windows {
+        let mut best: Option<(i32, WindowId, String, String)> = None;
+
+        for (idx, &w) in windows.iter().enumerate() {
             let title = self.get_window_title(w).unwrap_or_default();
             let class = self.get_window_class(w).unwrap_or_default();
-            if title_matches(&title, &class, matcher) {
-                return Ok(Some(w as WindowId));
+            let score = crate::backend::score_window(&title, &class, matcher, idx);
+            if let Some(score) = score {
+                log::trace!("Window {w:#x} ({w}): title=\"{title}\", class=\"{class}\", score={score}");
+                if best.as_ref().map_or(true, |(best_score, ..)| score > *best_score) {
+                    best = Some((score, w as WindowId, title, class));
+                }
             }
         }
 
-        Ok(None)
+        if let Some((score, id, title, class)) = &best {
+            log::debug!(
+                "Selected Horizon window {id} (score {score}): \"{title}\" [{class}]"
+            );
+        }
+
+        Ok(best.map(|(_, id, ..)| id))
     }
 
     fn active_window(&self) -> Result<Option<WindowId>> {

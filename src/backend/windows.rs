@@ -16,8 +16,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-    SetForegroundWindow,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, SetForegroundWindow,
 };
 
 #[cfg(windows)]
@@ -26,10 +26,7 @@ use crate::backend::{Backend, WindowId};
 use crate::config::Mode;
 
 pub fn title_matches(title: &str, matcher: &str) -> bool {
-    if matcher.is_empty() {
-        return false;
-    }
-    title.to_lowercase().contains(&matcher.to_lowercase())
+    crate::backend::title_matches(title, "", matcher)
 }
 
 pub fn parse_virtual_key(key: &str) -> Option<u16> {
@@ -94,7 +91,8 @@ impl WindowsBackend {
 #[cfg(windows)]
 struct EnumContext<'a> {
     matcher: &'a str,
-    found: Option<HWND>,
+    best: Option<(i32, HWND, String, String)>,
+    index: usize,
 }
 
 #[cfg(windows)]
@@ -105,12 +103,27 @@ unsafe extern "system" fn enum_window_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
     let mut buf = [0u16; 512];
     let len = GetWindowTextW(hwnd, &mut buf);
-    if len > 0 {
-        let title = String::from_utf16_lossy(&buf[..len as usize]);
-        let ctx = &mut *(lparam.0 as *mut EnumContext);
-        if title_matches(&title, ctx.matcher) {
-            ctx.found = Some(hwnd);
-            return BOOL(0);
+    let title = if len > 0 {
+        String::from_utf16_lossy(&buf[..len as usize])
+    } else {
+        String::new()
+    };
+
+    let mut class_buf = [0u16; 256];
+    let class_len = GetClassNameW(hwnd, &mut class_buf);
+    let class = if class_len > 0 {
+        String::from_utf16_lossy(&class_buf[..class_len as usize])
+    } else {
+        String::new()
+    };
+
+    let ctx = &mut *(lparam.0 as *mut EnumContext);
+    let idx = ctx.index;
+    ctx.index += 1;
+
+    if let Some(score) = crate::backend::score_window(&title, &class, ctx.matcher, idx) {
+        if ctx.best.as_ref().map_or(true, |(best_score, ..)| score > *best_score) {
+            ctx.best = Some((score, hwnd, title, class));
         }
     }
 
@@ -144,12 +157,21 @@ impl Backend for WindowsBackend {
         }
         let mut ctx = EnumContext {
             matcher,
-            found: None,
+            best: None,
+            index: 0,
         };
         unsafe {
             let _ = EnumWindows(Some(enum_window_proc), LPARAM(&mut ctx as *mut _ as isize));
         }
-        Ok(ctx.found.map(|hwnd| hwnd.0 as usize as WindowId))
+        if let Some((score, hwnd, title, class)) = ctx.best {
+            let wid = hwnd.0 as usize as WindowId;
+            log::debug!(
+                "Selected Horizon window {wid:#x} (score {score}): \"{title}\" [{class}]"
+            );
+            Ok(Some(wid))
+        } else {
+            Ok(None)
+        }
     }
 
     fn active_window(&self) -> Result<Option<WindowId>> {
