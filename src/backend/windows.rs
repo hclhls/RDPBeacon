@@ -180,12 +180,18 @@ impl Backend for WindowsBackend {
             let mut attached = false;
             if fg_thread != 0 && fg_thread != cur_thread {
                 attached = AttachThreadInput(cur_thread, fg_thread, true).as_bool();
+                if attached {
+                    log::debug!(
+                        "Attached thread input {cur_thread} -> {fg_thread} to focus window {w:#x}"
+                    );
+                }
             }
 
             let success = SetForegroundWindow(hwnd).as_bool();
 
             if attached {
                 let _ = AttachThreadInput(cur_thread, fg_thread, false);
+                log::debug!("Detached thread input {cur_thread} -> {fg_thread}");
             }
 
             if !success {

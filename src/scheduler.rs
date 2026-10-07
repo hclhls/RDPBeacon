@@ -45,12 +45,17 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
     if b.supports_focus() {
         let prev_window = b.active_window()?;
         if prev_window == Some(horizon_win) {
+            log::debug!("Horizon window {horizon_win} is already focused");
             b.send_beacon(cfg.mode, &cfg.key)?;
         } else {
+            log::debug!(
+                "Focusing Horizon window {horizon_win} (previous window: {prev_window:?})"
+            );
             b.focus(horizon_win)?;
             let beacon_res = b.send_beacon(cfg.mode, &cfg.key);
             std::thread::sleep(Duration::from_millis(100));
             if let Some(prev) = prev_window {
+                log::debug!("Restoring focus to previous window {prev}");
                 if let Err(e) = b.focus(prev) {
                     log::warn!("Failed to restore focus to previous window {prev}: {e}");
                 }
