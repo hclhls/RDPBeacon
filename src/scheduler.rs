@@ -52,8 +52,11 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
                 "Focusing Horizon window {horizon_win} (previous window: {prev_window:?})"
             );
             b.focus(horizon_win)?;
+            // Settle delay: allow window manager, compositor, and Horizon Client input hooks to attach
+            std::thread::sleep(Duration::from_millis(250));
             let beacon_res = b.send_beacon(cfg.mode, &cfg.key);
-            std::thread::sleep(Duration::from_millis(100));
+            // Dwell delay: allow the remote display protocol thread to transmit input to guest VM
+            std::thread::sleep(Duration::from_millis(150));
             if let Some(prev) = prev_window {
                 log::debug!("Restoring focus to previous window {prev}");
                 if let Err(e) = b.focus(prev) {
@@ -476,7 +479,7 @@ mod tests {
                 MockCall::SupportsFocus,
                 MockCall::ActiveWindow,
                 MockCall::Focus(100),
-                MockCall::SendBeacon(Mode::Key, "F15".to_string()),
+                MockCall::SendBeacon(Mode::Key, "Shift_L".to_string()),
                 MockCall::Focus(200),
             ],
             "focus should be restored to previous window even if beacon injection errors"

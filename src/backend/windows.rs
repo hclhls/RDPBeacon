@@ -256,18 +256,23 @@ impl Backend for WindowsBackend {
                         },
                     },
                 };
-                let sent = unsafe {
-                    SendInput(&[down], std::mem::size_of::<INPUT>() as i32)
-                };
-                if sent != 1 {
-                    anyhow::bail!("SendInput failed to send keyboard down event (sent {sent} of 1)");
-                }
-                std::thread::sleep(Duration::from_millis(10));
-                let sent = unsafe {
-                    SendInput(&[up], std::mem::size_of::<INPUT>() as i32)
-                };
-                if sent != 1 {
-                    anyhow::bail!("SendInput failed to send keyboard up event (sent {sent} of 1)");
+                for i in 0..2 {
+                    if i > 0 {
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                    let sent = unsafe {
+                        SendInput(&[down], std::mem::size_of::<INPUT>() as i32)
+                    };
+                    if sent != 1 {
+                        anyhow::bail!("SendInput failed to send keyboard down event (sent {sent} of 1)");
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                    let sent = unsafe {
+                        SendInput(&[up], std::mem::size_of::<INPUT>() as i32)
+                    };
+                    if sent != 1 {
+                        anyhow::bail!("SendInput failed to send keyboard up event (sent {sent} of 1)");
+                    }
                 }
             }
             Mode::Mouse => {

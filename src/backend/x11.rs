@@ -166,6 +166,10 @@ impl X11Backend {
         // to XF86Launch6 (0x1008ff46) rather than XK_F15 (0xffcc). If requesting F15 and keycode
         // 193 is valid, use keycode 193 directly to avoid altering user keymaps.
         if keysym == 0xffcc && (min..=max).contains(&193) {
+            log::warn!(
+                "Key 'F15' may not be forwarded by Horizon Client on Linux (unmapped in 104-key PC layouts). \
+                 Consider using 'Shift_L' or mode = 'mouse'."
+            );
             return Ok(193);
         }
 
@@ -288,29 +292,36 @@ impl Backend for X11Backend {
                 let keysym = keysym_from_str(key)
                     .ok_or_else(|| anyhow::anyhow!("Unknown or unsupported key: {key}"))?;
                 let keycode = self.keysym_to_keycode(keysym)?;
-                xtest::fake_input(
-                    &self.conn,
-                    xproto::KEY_PRESS_EVENT,
-                    keycode,
-                    x11rb::CURRENT_TIME,
-                    0,
-                    0,
-                    0,
-                    0,
-                )?;
-                self.conn.flush()?;
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                xtest::fake_input(
-                    &self.conn,
-                    xproto::KEY_RELEASE_EVENT,
-                    keycode,
-                    x11rb::CURRENT_TIME,
-                    0,
-                    0,
-                    0,
-                    0,
-                )?;
-                self.conn.flush()?;
+                // Send two taps: the first pulse ensures window/input activation hooks settle,
+                // and the second guarantees reception by the remote desktop session.
+                for i in 0..2 {
+                    if i > 0 {
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                    xtest::fake_input(
+                        &self.conn,
+                        xproto::KEY_PRESS_EVENT,
+                        keycode,
+                        x11rb::CURRENT_TIME,
+                        0,
+                        0,
+                        0,
+                        0,
+                    )?;
+                    self.conn.flush()?;
+                    std::thread::sleep(Duration::from_millis(20));
+                    xtest::fake_input(
+                        &self.conn,
+                        xproto::KEY_RELEASE_EVENT,
+                        keycode,
+                        x11rb::CURRENT_TIME,
+                        0,
+                        0,
+                        0,
+                        0,
+                    )?;
+                    self.conn.flush()?;
+                }
             }
             Mode::Mouse => {
                 xtest::fake_input(

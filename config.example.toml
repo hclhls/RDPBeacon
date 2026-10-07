@@ -21,13 +21,14 @@ jitter = "20s"
 idle_threshold = "3m"
 
 # Keystroke to simulate when `mode = "key"`.
-# Supported values include standard function keys (F1-F24), Space, Enter,
-# Esc, Tab, Backspace, arrow keys. F15 is strongly recommended as it is
-# harmless and unmapped in virtually all desktop environments and remote VMs.
+# Supported values include Shift_L, Ctrl, Alt, standard function keys (F1-F24),
+# Space, Enter, Esc, Tab, Backspace, arrow keys. Shift_L is strongly recommended
+# as it produces no character and translates cleanly across standard 101/104-key
+# PC keyboard layouts used by Omnissa / VMware Horizon Client.
 # Note: Raw hex codes are platform-specific (VK code on Windows, keysym on X11,
-# evdev code on Wayland). Using named keys (e.g., "F15") is recommended.
-# Default: "F15"
-key = "F15"
+# evdev code on Wayland). Using named keys (e.g., "Shift_L") is recommended.
+# Default: "Shift_L"
+key = "Shift_L"
 
 # Beacon injection mode: "key" or "mouse".
 # - "key": Simulates a single key press and release of `key` into the Horizon session.

@@ -11,9 +11,9 @@ A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **
 
 ## Features
 
-- **Harmless Beacons**: Simulates an unmapped function key (`F15` by default) or a tiny 1-pixel mouse nudge and back (`mode = "mouse"`).
+- **Harmless Beacons**: Simulates a harmless modifier key (`Shift_L` by default) or a tiny 1-pixel mouse nudge and back (`mode = "mouse"`).
 - **Idle Detection**: Only sends a beacon when the local user has been inactive for at least `idle_threshold`. If you are actively working, cycles are skipped automatically.
-- **Smart Focus Management (X11 & Windows)**: Automatically saves your currently focused window, focuses the Horizon Client window, injects the beacon, waits ~100 ms, and restores your original window.
+- **Smart Focus Management (X11 & Windows)**: Automatically saves your currently focused window, focuses the Horizon Client window, allows window input hooks to settle (~250 ms), injects the beacon, dwells (~150 ms) to ensure transmission to the remote VM, and cleanly restores your original window.
 - **Wayland Support**: Uses Linux `/dev/uinput` to inject synthetic inputs without requiring root or display-server privileges.
 - **Cross-Platform**: First-class support for Linux (X11), Linux (Wayland), and Windows.
 - **Zero Caching**: Window lookup is re-evaluated every cycle, gracefully handling client restarts or window title changes.
@@ -106,7 +106,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | `interval` | duration | `"4m"` | Base interval between beacon cycles (e.g., `"4m"`, `"240s"`). |
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Minimum user inactivity time before a beacon is fired. If you have been active within this duration, the cycle is skipped (on X11 & Windows). |
-| `key` | string | `"F15"` | Key to simulate when `mode = "key"`. Supports `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (Named keys are portable across OSes; hex values are platform-specific). |
+| `key` | string | `"Shift_L"` | Key to simulate when `mode = "key"`. Supports `Shift_L`, `Ctrl`, `Alt`, `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (`Shift_L` is recommended as it produces no character and maps cleanly across standard 101/104-key PC layouts). |
 | `mode` | string | `"key"` | Beacon mode: `"key"` (presses and releases `key` in Horizon) or `"mouse"` (nudges cursor +1 px and -1 px). |
 | `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title (and WM_CLASS on X11). Re-evaluated every cycle. |
 | `max_misses` | integer | `5` | Maximum consecutive cycles the Horizon Client window can be missing before `run` exits with an error. |
