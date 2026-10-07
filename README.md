@@ -57,6 +57,7 @@ rdpbeacon [OPTIONS] <COMMAND>
 
 - `-c, --config <PATH>`: Path to a TOML configuration file.
 - `-b, --backend <x11|wayland|windows>`: Manually override the display backend (overriding auto-detection and configuration file).
+- `-v, --verbose`: Enable verbose (debug) logging.
 - `-h, --help`: Print help information.
 - `-V, --version`: Print version information.
 

@@ -35,6 +35,9 @@ pub struct Cli {
     #[arg(short, long, global = true, value_enum, help = "Display backend to use (x11, wayland, windows)")]
     pub backend: Option<BackendKind>,
 
+    #[arg(short, long, global = true, help = "Enable verbose (debug) logging")]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -78,9 +81,12 @@ pub fn resolve_backend_kind(
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
-
     let cli = Cli::parse();
+
+    let default_filter = if cli.verbose { "debug" } else { "info" };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
+        .init();
+
     let cfg = Config::load(cli.config.as_deref())?;
     let backend_kind = resolve_backend_kind(cli.backend, cfg.backend)?;
 
@@ -185,6 +191,21 @@ mod tests {
         // Config takes second priority when CLI flag is None
         let kind = resolve_backend_kind(None, Some(BackendKind::Wayland)).unwrap();
         assert_eq!(kind, BackendKind::Wayland);
+    }
+
+    #[test]
+    fn parses_verbose_flag() {
+        let cli = Cli::try_parse_from(["rdpbeacon", "run"]).unwrap();
+        assert!(!cli.verbose);
+
+        let cli = Cli::try_parse_from(["rdpbeacon", "-v", "run"]).unwrap();
+        assert!(cli.verbose);
+
+        let cli = Cli::try_parse_from(["rdpbeacon", "--verbose", "once"]).unwrap();
+        assert!(cli.verbose);
+
+        let cli = Cli::try_parse_from(["rdpbeacon", "check", "-v"]).unwrap();
+        assert!(cli.verbose);
     }
 }
 
