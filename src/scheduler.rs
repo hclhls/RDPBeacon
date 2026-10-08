@@ -515,7 +515,7 @@ mod tests {
                 MockCall::SupportsFocus,
                 MockCall::ActiveWindow,
                 MockCall::Focus(100),
-                MockCall::SendBeacon(Mode::Key, "Shift_L".to_string()),
+                MockCall::SendBeacon(Mode::Mouse, "Shift_L".to_string()),
                 MockCall::Focus(200),
             ],
             "focus should be restored to previous window even if beacon injection errors"

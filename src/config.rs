@@ -46,7 +46,7 @@ impl Default for Config {
             jitter: Duration::from_secs(20),
             idle_threshold: Duration::from_secs(180),
             key: "Shift_L".to_string(),
-            mode: Mode::Key,
+            mode: Mode::Mouse,
             window_match: "Omnissa Horizon Client".to_string(),
             max_misses: 5,
             backend: None,
@@ -83,7 +83,7 @@ mod tests {
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
         assert_eq!(cfg.key, "Shift_L");
-        assert_eq!(cfg.mode, Mode::Key);
+        assert_eq!(cfg.mode, Mode::Mouse);
         assert_eq!(cfg.window_match, "Omnissa Horizon Client");
         assert_eq!(cfg.max_misses, 5);
         assert_eq!(cfg.backend, None);
@@ -93,7 +93,7 @@ mod tests {
     fn parses_toml_overrides() {
         let toml_str = r#"
             interval = "5m"
-            mode = "mouse"
+            mode = "key"
             max_misses = 10
         "#;
         let dir = std::env::temp_dir();
@@ -103,7 +103,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(cfg.interval, Duration::from_secs(300));
-        assert_eq!(cfg.mode, Mode::Mouse);
+        assert_eq!(cfg.mode, Mode::Key);
         assert_eq!(cfg.max_misses, 10);
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));

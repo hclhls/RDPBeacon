@@ -36,8 +36,9 @@ key = "Shift_L"
 # - "mouse": Nudges the mouse cursor by +1 pixel relative and restores it (-1 pixel).
 #   (Note: relative mouse events affect the window under the cursor, whereas key mode
 #   targets the focused Horizon window).
-# Default: "key"
-mode = "key"
+# Keep the pointer inside the Horizon desktop surface when using mouse mode.
+# Default: "mouse"
+mode = "mouse"
 
 # Case-insensitive substring used to locate the Omnissa Horizon Client window.
 # In X11 this matches window title or WM_CLASS; in Windows this matches window title.

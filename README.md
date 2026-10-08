@@ -11,7 +11,7 @@ A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **
 
 ## Features
 
-- **Harmless Beacons**: Simulates a harmless modifier key (`Shift_L` by default) or a tiny 1-pixel mouse nudge and back (`mode = "mouse"`).
+- **Harmless Beacons**: Uses a tiny 1-pixel mouse nudge and back by default (`mode = "mouse"`). Key mode remains available with `mode = "key"` and `Shift_L` as the default key. Keep the pointer inside the Horizon desktop surface when using mouse mode.
 - **Idle Detection**: If you are actively working inside Horizon, beacon cycles are skipped automatically since your typing keeps the session alive. Background Horizon sessions are kept alive even while you work in other local windows.
 - **Smart Focus Management (X11 & Windows)**: Automatically saves your currently focused window, focuses the Horizon Client window, allows window input hooks to settle (~250 ms), injects the beacon, dwells (~150 ms) to ensure transmission to the remote VM, and cleanly restores your original window.
 - **Wayland Support**: Uses Linux `/dev/uinput` to inject synthetic inputs without requiring root or display-server privileges.
@@ -107,7 +107,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Inactivity threshold before sending a beacon when the Horizon window is currently focused. If you are actively typing inside Horizon, the cycle is skipped. Background sessions are kept alive regardless. |
 | `key` | string | `"Shift_L"` | Key to simulate when `mode = "key"`. Supports `Shift_L`, `Ctrl`, `Alt`, `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (`Shift_L` is recommended as it produces no character and maps cleanly across standard 101/104-key PC layouts). |
-| `mode` | string | `"key"` | Beacon mode: `"key"` (presses and releases `key` in Horizon) or `"mouse"` (nudges cursor +1 px and -1 px). |
+| `mode` | string | `"mouse"` | Beacon mode: `"mouse"` (nudges cursor +1 px and -1 px) or `"key"` (presses and releases `key` in Horizon). Mouse mode requires the pointer to be inside the Horizon desktop surface. |
 | `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title (and WM_CLASS on X11). Re-evaluated every cycle. |
 | `max_misses` | integer | `5` | Maximum consecutive cycles the Horizon Client window can be missing before `run` exits with an error. |
 | `backend` | string | `None` (auto) | Display backend override (`"x11"`, `"wayland"`, or `"windows"`). |
@@ -153,6 +153,7 @@ By default, `/dev/uinput` requires root permissions. To run RDPBeacon as a stand
 > - **Organizational Policy**: RDPBeacon is an own-use productivity tool. You are responsible for ensuring that running this utility complies with your organization's IT security, Acceptable Use, and remote work policies.
 > - **Input Inactivity vs. Hard Session Limits**: RDPBeacon only simulates local user input to prevent **inactivity/idle timeouts**. It does **not** and cannot bypass hard administrative session lifetime limits (such as an 8-hour maximum session duration enforced by the Horizon Connection Server or identity provider).
 > - **Local Screen Auto-Lock / Screensaver**: Because beacons inject real operating system input, running RDPBeacon also resets your local desktop's idle timer, which may prevent local screen savers or auto-lock from engaging while the daemon is running. Always manually lock your screen (e.g. `Win+L` or `Super+L`) when stepping away from your workstation.
+> - **Locked Remote Windows Desktops**: Local input injection does not confirm that a locked remote desktop received the event or reset its idle timer. RDPBeacon cannot guarantee session retention after locking Windows inside Horizon. See [Troubleshooting screen-lock timeouts](docs/troubleshooting-screen-lock.md) for diagnostics and the server-side settings that retain a locked session.
 
 ---
 
@@ -167,6 +168,7 @@ Follow this checklist to verify your RDPBeacon installation:
 
 2. **Test Single Beacon (`rdpbeacon once`)**:
    - Focus another window (e.g., a terminal or text editor).
+   - For the default mouse mode, keep the pointer inside the Horizon desktop surface.
    - Run `rdpbeacon once`.
    - On X11 and Windows: verify that the Horizon window is briefly focused, the beacon is sent, and focus returns to your previous window within ~100 ms.
    - On Wayland: verify that the beacon event is emitted (e.g., using `wev` or by observing a 1 px mouse nudge in mouse mode).
