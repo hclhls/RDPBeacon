@@ -5,6 +5,8 @@ use crate::daemon::{AppState, ControlEvent, TrayView};
 mod icon;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(windows)]
+mod windows;
 
 const LOGGING_ID: u32 = 1;
 const QUIT_ID: u32 = 2;
@@ -12,12 +14,15 @@ const QUIT_ID: u32 = 2;
 struct MenuModel {
     view: TrayView,
     events: Sender<ControlEvent>,
+    #[cfg(any(windows, test))]
     unavailable: bool,
 }
 
 impl MenuModel {
     fn new(events: Sender<ControlEvent>) -> Self {
-        Self { view: AppState::default().view(), events, unavailable: false }
+        Self { view: AppState::default().view(), events,
+            #[cfg(any(windows, test))]
+            unavailable: false }
     }
     fn update(&mut self, view: &TrayView) { self.view = view.clone(); }
     fn activate(&mut self, id: u32) {
@@ -28,6 +33,11 @@ impl MenuModel {
         };
         let _ = self.events.send(event);
     }
+    #[cfg(any(windows, test))]
+    fn restore_icon(&mut self, register: impl FnOnce() -> bool) {
+        if !register() { self.unavailable("Could not restore Windows tray after Explorer restart"); }
+    }
+    #[cfg(any(windows, test))]
     fn unavailable(&mut self, reason: &str) {
         if !self.unavailable {
             self.unavailable = true;
@@ -45,12 +55,23 @@ pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>>
     #[cfg(target_os = "linux")]
     return linux::create(events);
     #[cfg(windows)]
-    { let _ = events; anyhow::bail!("Windows tray integration is not yet available") }
+    return windows::create(events);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explorer_restart_reregisters_or_reports_failure() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut menu = MenuModel::new(tx);
+        let mut calls = 0;
+        menu.restore_icon(|| { calls += 1; true });
+        assert_eq!(calls, 1);
+        assert!(rx.try_recv().is_err());
+        menu.restore_icon(|| false);
+        assert!(matches!(rx.recv().unwrap(), ControlEvent::TrayUnavailable(_)));
+    }
     #[test]
     fn menu_events_use_confirmed_logging_state() {
         let (tx, rx) = std::sync::mpsc::channel();
