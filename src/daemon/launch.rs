@@ -5,8 +5,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use anyhow::Context;
 use crate::config::BackendKind;
+use anyhow::Context;
 
 pub struct LaunchOptions {
     pub config: Option<PathBuf>,
@@ -22,17 +22,29 @@ fn child_args(options: &LaunchOptions, cwd: &Path) -> Vec<OsString> {
     }
     if let Some(kind) = options.backend {
         args.push("--backend".into());
-        args.push(match kind { BackendKind::X11 => "x11", BackendKind::Wayland => "wayland", BackendKind::Windows => "windows" }.into());
+        args.push(
+            match kind {
+                BackendKind::X11 => "x11",
+                BackendKind::Wayland => "wayland",
+                BackendKind::Windows => "windows",
+            }
+            .into(),
+        );
     }
-    if options.verbose { args.push("--verbose".into()); }
+    if options.verbose {
+        args.push("--verbose".into());
+    }
     args.extend(["run".into(), "--internal-daemon".into()]);
     args
 }
 
 pub fn launch(options: LaunchOptions) -> anyhow::Result<()> {
     let mut command = Command::new(std::env::current_exe().context("Locate RDPBeacon executable")?);
-    command.args(child_args(&options, &std::env::current_dir()?))
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    command
+        .args(child_args(&options, &std::env::current_dir()?))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -46,15 +58,25 @@ pub fn launch(options: LaunchOptions) -> anyhow::Result<()> {
 
 fn wait_for_startup(child: &mut Child, timeout: Duration) -> anyhow::Result<()> {
     let result = (|| {
-        let stdout = child.stdout.take().context("Missing daemon startup channel")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("Missing daemon startup channel")?;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut line = String::new();
-            let result = BufReader::new(stdout).take(4096).read_line(&mut line).map(|_| line);
+            let result = BufReader::new(stdout)
+                .take(4096)
+                .read_line(&mut line)
+                .map(|_| line);
             let _ = tx.send(result);
         });
-        let line = rx.recv_timeout(timeout).context("Daemon startup timed out or channel closed")??;
-        if line == "READY\n" { return Ok(()); }
+        let line = rx
+            .recv_timeout(timeout)
+            .context("Daemon startup timed out or channel closed")??;
+        if line == "READY\n" {
+            return Ok(());
+        }
         if let Some(reason) = line.strip_prefix("ERROR ") {
             anyhow::bail!("Daemon startup failed: {}", reason.trim());
         }
@@ -78,7 +100,15 @@ pub fn report_startup(result: Result<(), String>) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match result {
             Ok(()) => writeln!(stdout, "READY")?,
-            Err(reason) => writeln!(stdout, "ERROR {}", reason.replace(['\n', '\r'], " ").chars().take(2000).collect::<String>())?,
+            Err(reason) => writeln!(
+                stdout,
+                "ERROR {}",
+                reason
+                    .replace(['\n', '\r'], " ")
+                    .chars()
+                    .take(2000)
+                    .collect::<String>()
+            )?,
         }
         stdout.flush()?;
     }
@@ -107,10 +137,27 @@ mod tests {
     fn preserves_unicode_relative_config_backend_and_verbose() {
         let options = LaunchOptions {
             config: Some(PathBuf::from("config folder/設定.toml")),
-            backend: Some(BackendKind::X11), verbose: true,
+            backend: Some(BackendKind::X11),
+            verbose: true,
         };
-        let args = child_args(&options, Path::new("/tmp/base"));
-        assert_eq!(args, ["--config", "/tmp/base/config folder/設定.toml", "--backend", "x11", "--verbose", "run", "--internal-daemon"].map(OsString::from));
+        #[cfg(unix)]
+        let (base, expected) = ("/tmp/base", "/tmp/base/config folder/設定.toml");
+        #[cfg(windows)]
+        let (base, expected) = (r"C:\tmp\base", r"C:\tmp\base\config folder/設定.toml");
+        let args = child_args(&options, Path::new(base));
+        assert_eq!(
+            args,
+            [
+                "--config",
+                expected,
+                "--backend",
+                "x11",
+                "--verbose",
+                "run",
+                "--internal-daemon"
+            ]
+            .map(OsString::from)
+        );
     }
 
     #[cfg(unix)]
@@ -133,7 +180,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn startup_failures_reap_child() {
-        for script in ["printf 'ERROR no tray\\n'; exec sleep 5", "printf 'garbage\\n'; exec sleep 5", "exit 0", "exec sleep 5", "printf 'READY'; exec sleep 5"] {
+        for script in [
+            "printf 'ERROR no tray\\n'; exec sleep 5",
+            "printf 'garbage\\n'; exec sleep 5",
+            "exit 0",
+            "exec sleep 5",
+            "printf 'READY'; exec sleep 5",
+        ] {
             let mut child = fixture(script).spawn().unwrap();
             assert!(wait_for_startup(&mut child, Duration::from_millis(100)).is_err());
             assert!(child.try_wait().unwrap().is_some(), "orphan for {script}");

@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use anyhow::Result;
 use rand::Rng;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::backend::Backend;
 use crate::config::Config;
@@ -67,9 +67,7 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
             log::debug!("Horizon window {horizon_win} is already focused");
             b.send_beacon(cfg.mode, &cfg.key)?;
         } else {
-            log::debug!(
-                "Focusing Horizon window {horizon_win} (previous window: {prev_window:?})"
-            );
+            log::debug!("Focusing Horizon window {horizon_win} (previous window: {prev_window:?})");
             b.focus(horizon_win)?;
             // Settle delay: allow window manager, compositor, and Horizon Client input hooks to attach
             std::thread::sleep(Duration::from_millis(250));
@@ -207,7 +205,10 @@ mod tests {
         }
 
         fn find_horizon_window(&self, matcher: &str) -> Result<Option<WindowId>> {
-            self.calls.lock().unwrap().push(MockCall::FindHorizonWindow(matcher.to_string()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push(MockCall::FindHorizonWindow(matcher.to_string()));
             Ok(self.horizon_window)
         }
 
@@ -227,7 +228,10 @@ mod tests {
         }
 
         fn send_beacon(&self, mode: Mode, key: &str) -> Result<()> {
-            self.calls.lock().unwrap().push(MockCall::SendBeacon(mode, key.to_string()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push(MockCall::SendBeacon(mode, key.to_string()));
             if self.fail_send_beacon {
                 anyhow::bail!("synthetic beacon injection error");
             }
@@ -310,10 +314,16 @@ mod tests {
         let outcome = run_cycle(&mock, &cfg).unwrap();
         assert_eq!(outcome, CycleOutcome::Sent);
 
-        let relevant: Vec<_> = mock.calls().into_iter().filter(|c| matches!(
-            c,
-            MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
-        )).collect();
+        let relevant: Vec<_> = mock
+            .calls()
+            .into_iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
+                )
+            })
+            .collect();
 
         assert_eq!(
             relevant,
@@ -338,10 +348,16 @@ mod tests {
         let outcome = run_cycle(&mock, &cfg).unwrap();
         assert_eq!(outcome, CycleOutcome::Sent);
 
-        let relevant: Vec<_> = mock.calls().into_iter().filter(|c| matches!(
-            c,
-            MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
-        )).collect();
+        let relevant: Vec<_> = mock
+            .calls()
+            .into_iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
+                )
+            })
+            .collect();
 
         assert_eq!(
             relevant,
@@ -382,10 +398,16 @@ mod tests {
         let outcome = run_cycle(&mock, &cfg).unwrap();
         assert_eq!(outcome, CycleOutcome::Sent);
 
-        let relevant: Vec<_> = mock.calls().into_iter().filter(|c| matches!(
-            c,
-            MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
-        )).collect();
+        let relevant: Vec<_> = mock
+            .calls()
+            .into_iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    MockCall::ActiveWindow | MockCall::Focus(_) | MockCall::SendBeacon(..)
+                )
+            })
+            .collect();
 
         assert_eq!(
             relevant,
@@ -453,7 +475,10 @@ mod tests {
 
         let stop = AtomicBool::new(false);
         let res = run_loop(&mock, &cfg, &stop);
-        assert!(res.is_err(), "expected run_loop to exit with error after max misses");
+        assert!(
+            res.is_err(),
+            "expected run_loop to exit with error after max misses"
+        );
         let err_msg = format!("{:#}", res.unwrap_err());
         assert_eq!(
             err_msg,
@@ -476,9 +501,7 @@ mod tests {
         let mock_clone = Arc::clone(&mock);
 
         let start = std::time::Instant::now();
-        let handle = std::thread::spawn(move || {
-            run_loop(mock_clone.as_ref(), &cfg, &stop_clone)
-        });
+        let handle = std::thread::spawn(move || run_loop(mock_clone.as_ref(), &cfg, &stop_clone));
 
         std::thread::sleep(Duration::from_millis(50));
         stop.store(true, Ordering::Relaxed);
@@ -504,7 +527,10 @@ mod tests {
         let cfg = Config::default();
 
         let res = run_cycle(&mock, &cfg);
-        assert!(res.is_err(), "cycle should fail when beacon injection fails");
+        assert!(
+            res.is_err(),
+            "cycle should fail when beacon injection fails"
+        );
 
         let calls = mock.calls();
         assert_eq!(
@@ -540,16 +566,20 @@ mod tests {
         let mock_arc = Arc::new(mock);
         let mock_clone = Arc::clone(&mock_arc);
 
-        let handle = std::thread::spawn(move || {
-            run_loop(mock_clone.as_ref(), &cfg, &stop_clone)
-        });
+        let handle = std::thread::spawn(move || run_loop(mock_clone.as_ref(), &cfg, &stop_clone));
 
         // Loop clamps sleep to min 1s; sleep 1.2s to let at least one error cycle execute and continue
         std::thread::sleep(Duration::from_millis(1200));
         stop.store(true, Ordering::Relaxed);
 
         let res = handle.join().expect("thread should not panic");
-        assert!(res.is_ok(), "run_loop should not crash on single cycle errors");
-        assert!(!mock_arc.calls().is_empty(), "loop should have executed a cycle despite errors");
+        assert!(
+            res.is_ok(),
+            "run_loop should not crash on single cycle errors"
+        );
+        assert!(
+            !mock_arc.calls().is_empty(),
+            "loop should have executed a cycle despite errors"
+        );
     }
 }

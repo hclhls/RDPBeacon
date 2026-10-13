@@ -1,14 +1,14 @@
-use std::time::Duration;
 use anyhow::Result;
+use std::time::Duration;
 
 use crate::config::{BackendKind, Mode};
 
 #[cfg(target_os = "linux")]
-pub mod x11;
-#[cfg(target_os = "linux")]
 pub mod wayland;
 #[cfg(any(windows, test))]
 pub mod windows;
+#[cfg(target_os = "linux")]
+pub mod x11;
 
 pub type WindowId = u64;
 
@@ -26,7 +26,9 @@ pub fn title_matches(title: &str, class: &str, matcher: &str) -> bool {
 
     // If the matcher is targeting Horizon / VMware View (e.g., "Omnissa Horizon Client", "Horizon", "VMware View"),
     // also match associated remote session windows whose class is HorizonUnityWindow/UnityWindow/MKSWindow.
-    if (matcher_lower.contains("horizon") || matcher_lower.contains("vmware") || matcher_lower.contains("view"))
+    if (matcher_lower.contains("horizon")
+        || matcher_lower.contains("vmware")
+        || matcher_lower.contains("view"))
         && is_session_window(title, class)
     {
         return true;
@@ -75,9 +77,8 @@ pub fn is_launcher_window(title: &str, class: &str) -> bool {
         || t.eq_ignore_ascii_case("VMware View")
         || t.eq_ignore_ascii_case("Horizon Client");
 
-    let is_generic_class = c.contains("horizon-client")
-        || c.contains("vmware-view")
-        || c.contains("wswc_ui");
+    let is_generic_class =
+        c.contains("horizon-client") || c.contains("vmware-view") || c.contains("wswc_ui");
 
     (is_generic_title || is_generic_class) && !is_session_window(title, class)
 }
@@ -124,7 +125,8 @@ pub fn detect_backend_kind(
         return Ok(BackendKind::Windows);
     }
 
-    let is_wayland_session = session_type.map_or(false, |s| s.trim().eq_ignore_ascii_case("wayland"));
+    let is_wayland_session =
+        session_type.map_or(false, |s| s.trim().eq_ignore_ascii_case("wayland"));
     let is_x11_session = session_type.map_or(false, |s| s.trim().eq_ignore_ascii_case("x11"));
     let has_wayland_display = wayland_display.map_or(false, |s| !s.trim().is_empty());
 
@@ -217,7 +219,9 @@ mod tests {
         match make_backend(BackendKind::Windows) {
             Ok(_) => panic!("Expected error on non-Windows"),
             Err(err) => {
-                assert!(err.to_string().contains("Windows backend is only available on Windows"));
+                assert!(err
+                    .to_string()
+                    .contains("Windows backend is only available on Windows"));
             }
         }
     }
@@ -261,7 +265,8 @@ mod tests {
         )
         .unwrap();
 
-        let toolbar_score = score_window("BBar", "遠端桌面連線.HorizonUnityWindow", "horizon", 2).unwrap();
+        let toolbar_score =
+            score_window("BBar", "遠端桌面連線.HorizonUnityWindow", "horizon", 2).unwrap();
 
         assert!(
             session_score > launcher_score,
@@ -273,4 +278,3 @@ mod tests {
         );
     }
 }
-

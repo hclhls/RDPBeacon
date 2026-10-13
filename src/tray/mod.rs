@@ -1,6 +1,6 @@
+use crate::daemon::{AppState, ControlEvent, TrayView};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
-use crate::daemon::{AppState, ControlEvent, TrayView};
 
 mod icon;
 #[cfg(target_os = "linux")]
@@ -20,14 +20,21 @@ struct MenuModel {
 
 impl MenuModel {
     fn new(events: Sender<ControlEvent>) -> Self {
-        Self { view: AppState::default().view(), events,
+        Self {
+            view: AppState::default().view(),
+            events,
             #[cfg(any(windows, test))]
-            unavailable: false }
+            unavailable: false,
+        }
     }
-    fn update(&mut self, view: &TrayView) { self.view = view.clone(); }
+    fn update(&mut self, view: &TrayView) {
+        self.view = view.clone();
+    }
     fn activate(&mut self, id: u32) {
         let event = match id {
-            LOGGING_ID if !self.view.quitting => ControlEvent::SetLogging(!self.view.logging_enabled),
+            LOGGING_ID if !self.view.quitting => {
+                ControlEvent::SetLogging(!self.view.logging_enabled)
+            }
             QUIT_ID => ControlEvent::Quit,
             _ => return,
         };
@@ -35,13 +42,17 @@ impl MenuModel {
     }
     #[cfg(any(windows, test))]
     fn restore_icon(&mut self, register: impl FnOnce() -> bool) {
-        if !register() { self.unavailable("Could not restore Windows tray after Explorer restart"); }
+        if !register() {
+            self.unavailable("Could not restore Windows tray after Explorer restart");
+        }
     }
     #[cfg(any(windows, test))]
     fn unavailable(&mut self, reason: &str) {
         if !self.unavailable {
             self.unavailable = true;
-            let _ = self.events.send(ControlEvent::TrayUnavailable(reason.into()));
+            let _ = self
+                .events
+                .send(ControlEvent::TrayUnavailable(reason.into()));
         }
     }
 }
@@ -66,11 +77,17 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut menu = MenuModel::new(tx);
         let mut calls = 0;
-        menu.restore_icon(|| { calls += 1; true });
+        menu.restore_icon(|| {
+            calls += 1;
+            true
+        });
         assert_eq!(calls, 1);
         assert!(rx.try_recv().is_err());
         menu.restore_icon(|| false);
-        assert!(matches!(rx.recv().unwrap(), ControlEvent::TrayUnavailable(_)));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            ControlEvent::TrayUnavailable(_)
+        ));
     }
     #[test]
     fn menu_events_use_confirmed_logging_state() {
@@ -79,9 +96,16 @@ mod tests {
         menu.activate(LOGGING_ID);
         assert!(matches!(rx.recv().unwrap(), ControlEvent::SetLogging(true)));
         assert!(!menu.view.logging_enabled);
-        menu.update(&TrayView { status: "Running".into(), logging_enabled: true, quitting: false });
+        menu.update(&TrayView {
+            status: "Running".into(),
+            logging_enabled: true,
+            quitting: false,
+        });
         menu.activate(LOGGING_ID);
-        assert!(matches!(rx.recv().unwrap(), ControlEvent::SetLogging(false)));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            ControlEvent::SetLogging(false)
+        ));
         menu.activate(QUIT_ID);
         assert!(matches!(rx.recv().unwrap(), ControlEvent::Quit));
         menu.activate(99);
@@ -94,7 +118,9 @@ mod tests {
         let mut menu = MenuModel::new(tx);
         menu.unavailable("host lost");
         menu.unavailable("host lost again");
-        assert!(matches!(rx.recv().unwrap(), ControlEvent::TrayUnavailable(reason) if reason == "host lost"));
+        assert!(
+            matches!(rx.recv().unwrap(), ControlEvent::TrayUnavailable(reason) if reason == "host lost")
+        );
         assert!(rx.try_recv().is_err());
     }
 }

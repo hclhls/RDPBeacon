@@ -1,5 +1,5 @@
-use std::time::Duration;
 use anyhow::{Context, Result};
+use std::time::Duration;
 use x11rb::connection::Connection;
 use x11rb::protocol::screensaver;
 use x11rb::protocol::xproto::{
@@ -16,7 +16,10 @@ pub use crate::backend::title_matches;
 
 pub fn keysym_from_str(key: &str) -> Option<u32> {
     let key_trimmed = key.trim();
-    if let Some(hex) = key_trimmed.strip_prefix("0x").or_else(|| key_trimmed.strip_prefix("0X")) {
+    if let Some(hex) = key_trimmed
+        .strip_prefix("0x")
+        .or_else(|| key_trimmed.strip_prefix("0X"))
+    {
         if let Ok(val) = u32::from_str_radix(hex, 16) {
             return Some(val);
         }
@@ -65,8 +68,8 @@ pub struct X11Backend {
 
 impl X11Backend {
     pub fn new() -> Result<Self> {
-        let (conn, screen_num) = x11rb::connect(None)
-            .context("Failed to connect to X11 display server")?;
+        let (conn, screen_num) =
+            x11rb::connect(None).context("Failed to connect to X11 display server")?;
         let screen = conn
             .setup()
             .roots
@@ -74,18 +77,12 @@ impl X11Backend {
             .ok_or_else(|| anyhow::anyhow!("No X11 screen for index {screen_num}"))?;
         let root = screen.root;
 
-        let atom_net_client_list = conn
-            .intern_atom(false, b"_NET_CLIENT_LIST")?
-            .reply()?
-            .atom;
+        let atom_net_client_list = conn.intern_atom(false, b"_NET_CLIENT_LIST")?.reply()?.atom;
         let atom_net_active_window = conn
             .intern_atom(false, b"_NET_ACTIVE_WINDOW")?
             .reply()?
             .atom;
-        let atom_net_wm_name = conn
-            .intern_atom(false, b"_NET_WM_NAME")?
-            .reply()?
-            .atom;
+        let atom_net_wm_name = conn.intern_atom(false, b"_NET_WM_NAME")?.reply()?.atom;
 
         Ok(Self {
             conn,
@@ -97,26 +94,18 @@ impl X11Backend {
     }
 
     fn get_window_title(&self, w: Window) -> Result<String> {
-        let reply = self.conn.get_property(
-            false,
-            w,
-            self.atom_net_wm_name,
-            AtomEnum::ANY,
-            0,
-            1024,
-        )?.reply()?;
+        let reply = self
+            .conn
+            .get_property(false, w, self.atom_net_wm_name, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
         if !reply.value.is_empty() {
             return Ok(String::from_utf8_lossy(&reply.value).to_string());
         }
 
-        let reply = self.conn.get_property(
-            false,
-            w,
-            AtomEnum::WM_NAME,
-            AtomEnum::ANY,
-            0,
-            1024,
-        )?.reply()?;
+        let reply = self
+            .conn
+            .get_property(false, w, AtomEnum::WM_NAME, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
         if !reply.value.is_empty() {
             return Ok(String::from_utf8_lossy(&reply.value).to_string());
         }
@@ -125,16 +114,16 @@ impl X11Backend {
     }
 
     fn get_window_class(&self, w: Window) -> Result<String> {
-        let reply = self.conn.get_property(
-            false,
-            w,
-            AtomEnum::WM_CLASS,
-            AtomEnum::ANY,
-            0,
-            1024,
-        )?.reply()?;
+        let reply = self
+            .conn
+            .get_property(false, w, AtomEnum::WM_CLASS, AtomEnum::ANY, 0, 1024)?
+            .reply()?;
         if !reply.value.is_empty() {
-            let s = reply.value.iter().map(|&b| if b == 0 { b' ' } else { b }).collect::<Vec<u8>>();
+            let s = reply
+                .value
+                .iter()
+                .map(|&b| if b == 0 { b' ' } else { b })
+                .collect::<Vec<u8>>();
             return Ok(String::from_utf8_lossy(&s).to_string());
         }
         Ok(String::new())
@@ -176,7 +165,8 @@ impl X11Backend {
         if let Some(keycode) = unused_keycode {
             let mut new_keysyms = vec![0; per_key];
             new_keysyms[0] = keysym;
-            self.conn.change_keyboard_mapping(1, keycode, per_key as u8, &new_keysyms)?;
+            self.conn
+                .change_keyboard_mapping(1, keycode, per_key as u8, &new_keysyms)?;
             self.conn.flush()?;
             return Ok(keycode);
         }
@@ -192,16 +182,22 @@ impl Backend for X11Backend {
     }
 
     fn find_horizon_window(&self, matcher: &str) -> Result<Option<WindowId>> {
-        let reply = self.conn.get_property(
-            false,
-            self.root,
-            self.atom_net_client_list,
-            AtomEnum::WINDOW,
-            0,
-            4096,
-        )?.reply()?;
+        let reply = self
+            .conn
+            .get_property(
+                false,
+                self.root,
+                self.atom_net_client_list,
+                AtomEnum::WINDOW,
+                0,
+                4096,
+            )?
+            .reply()?;
 
-        let windows: Vec<u32> = reply.value32().map(|iter| iter.collect()).unwrap_or_default();
+        let windows: Vec<u32> = reply
+            .value32()
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
 
         let mut best: Option<(i32, WindowId, String, String)> = None;
 
@@ -210,31 +206,37 @@ impl Backend for X11Backend {
             let class = self.get_window_class(w).unwrap_or_default();
             let score = crate::backend::score_window(&title, &class, matcher, idx);
             if let Some(score) = score {
-                log::trace!("Window {w:#x} ({w}): title=\"{title}\", class=\"{class}\", score={score}");
-                if best.as_ref().map_or(true, |(best_score, ..)| score > *best_score) {
+                log::trace!(
+                    "Window {w:#x} ({w}): title=\"{title}\", class=\"{class}\", score={score}"
+                );
+                if best
+                    .as_ref()
+                    .map_or(true, |(best_score, ..)| score > *best_score)
+                {
                     best = Some((score, w as WindowId, title, class));
                 }
             }
         }
 
         if let Some((score, id, title, class)) = &best {
-            log::debug!(
-                "Selected Horizon window {id} (score {score}): \"{title}\" [{class}]"
-            );
+            log::debug!("Selected Horizon window {id} (score {score}): \"{title}\" [{class}]");
         }
 
         Ok(best.map(|(_, id, ..)| id))
     }
 
     fn active_window(&self) -> Result<Option<WindowId>> {
-        let reply = self.conn.get_property(
-            false,
-            self.root,
-            self.atom_net_active_window,
-            AtomEnum::WINDOW,
-            0,
-            1,
-        )?.reply()?;
+        let reply = self
+            .conn
+            .get_property(
+                false,
+                self.root,
+                self.atom_net_active_window,
+                AtomEnum::WINDOW,
+                0,
+                1,
+            )?
+            .reply()?;
 
         let wid = reply.value32().and_then(|mut it| it.next()).unwrap_or(0);
         if wid == 0 {
@@ -397,7 +399,9 @@ mod tests {
                 assert!(backend.idle_time().is_ok());
                 assert!(backend.active_window().is_ok());
                 assert_eq!(
-                    backend.find_horizon_window("this_is_an_unlikely_match_string_xyz").unwrap(),
+                    backend
+                        .find_horizon_window("this_is_an_unlikely_match_string_xyz")
+                        .unwrap(),
                     None
                 );
             }

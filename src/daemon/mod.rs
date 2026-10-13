@@ -1,5 +1,7 @@
 pub mod launch;
 pub mod logging;
+mod runtime;
+pub use runtime::run;
 
 #[derive(Debug)]
 pub enum ControlEvent {
@@ -57,7 +59,11 @@ impl AppState {
                 |reason| format!("Running; logging error: {reason}"),
             ),
         };
-        TrayView { status, logging_enabled: self.logging_enabled, quitting: self.quitting }
+        TrayView {
+            status,
+            logging_enabled: self.logging_enabled,
+            quitting: self.quitting,
+        }
     }
 
     pub fn request_quit(&mut self) {
@@ -74,12 +80,20 @@ impl AppState {
 
     pub fn logging_result(&mut self, enabled: bool, result: Result<(), String>) {
         match result {
-            Ok(()) => { self.logging_enabled = enabled; self.logging_error = None; }
-            Err(reason) => { self.logging_enabled = false; self.logging_error = Some(reason); }
+            Ok(()) => {
+                self.logging_enabled = enabled;
+                self.logging_error = None;
+            }
+            Err(reason) => {
+                self.logging_enabled = false;
+                self.logging_error = Some(reason);
+            }
         }
     }
 
-    pub fn can_exit(&self) -> bool { self.quitting && self.finished }
+    pub fn can_exit(&self) -> bool {
+        self.quitting && self.finished
+    }
 }
 
 #[cfg(test)]

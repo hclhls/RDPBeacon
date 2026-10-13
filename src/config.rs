@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::time::Duration;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -68,7 +68,6 @@ impl Config {
 
         Ok(config)
     }
-
 }
 
 #[cfg(test)]
@@ -97,7 +96,10 @@ mod tests {
             max_misses = 10
         "#;
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("rdpbeacon_test_overrides_{}.toml", std::process::id()));
+        let path = dir.join(format!(
+            "rdpbeacon_test_overrides_{}.toml",
+            std::process::id()
+        ));
         std::fs::write(&path, toml_str).unwrap();
         let cfg = Config::load(Some(&path)).expect("loading valid toml should succeed");
         let _ = std::fs::remove_file(&path);
@@ -118,7 +120,10 @@ mod tests {
             interval = "invalid_duration"
         "#;
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("rdpbeacon_test_malformed_{}.toml", std::process::id()));
+        let path = dir.join(format!(
+            "rdpbeacon_test_malformed_{}.toml",
+            std::process::id()
+        ));
         std::fs::write(&path, toml_str).unwrap();
         let res = Config::load(Some(&path));
         let _ = std::fs::remove_file(&path);
@@ -137,7 +142,10 @@ mod tests {
             unknown_setting = "value"
         "#;
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("rdpbeacon_test_unknown_{}.toml", std::process::id()));
+        let path = dir.join(format!(
+            "rdpbeacon_test_unknown_{}.toml",
+            std::process::id()
+        ));
         std::fs::write(&path, toml_str).unwrap();
         let res = Config::load(Some(&path));
         let _ = std::fs::remove_file(&path);

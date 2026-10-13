@@ -1,7 +1,7 @@
 #[cfg(windows)]
-use std::time::Duration;
-#[cfg(windows)]
 use anyhow::{Context, Result};
+#[cfg(windows)]
+use std::time::Duration;
 #[cfg(windows)]
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 #[cfg(windows)]
@@ -11,8 +11,8 @@ use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 #[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetLastInputInfo, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
-    KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MAPVK_VK_TO_VSC, MOUSEINPUT,
-    MOUSEEVENTF_MOVE, VIRTUAL_KEY,
+    KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, LASTINPUTINFO, MAPVK_VK_TO_VSC,
+    MOUSEEVENTF_MOVE, MOUSEINPUT, VIRTUAL_KEY,
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -25,6 +25,7 @@ use crate::backend::{Backend, WindowId};
 #[cfg(windows)]
 use crate::config::Mode;
 
+#[cfg(test)]
 pub fn title_matches(title: &str, matcher: &str) -> bool {
     crate::backend::title_matches(title, "", matcher)
 }
@@ -35,7 +36,10 @@ pub fn parse_virtual_key(key: &str) -> Option<u16> {
         return None;
     }
 
-    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
         if let Ok(val) = u16::from_str_radix(hex, 16) {
             return Some(val);
         }
@@ -122,7 +126,11 @@ unsafe extern "system" fn enum_window_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     ctx.index += 1;
 
     if let Some(score) = crate::backend::score_window(&title, &class, ctx.matcher, idx) {
-        if ctx.best.as_ref().map_or(true, |(best_score, ..)| score > *best_score) {
+        if ctx
+            .best
+            .as_ref()
+            .map_or(true, |(best_score, ..)| score > *best_score)
+        {
             ctx.best = Some((score, hwnd, title, class));
         }
     }
@@ -165,9 +173,7 @@ impl Backend for WindowsBackend {
         }
         if let Some((score, hwnd, title, class)) = ctx.best {
             let wid = hwnd.0 as usize as WindowId;
-            log::debug!(
-                "Selected Horizon window {wid:#x} (score {score}): \"{title}\" [{class}]"
-            );
+            log::debug!("Selected Horizon window {wid:#x} (score {score}): \"{title}\" [{class}]");
             Ok(Some(wid))
         } else {
             Ok(None)
@@ -260,18 +266,18 @@ impl Backend for WindowsBackend {
                     if i > 0 {
                         std::thread::sleep(Duration::from_millis(30));
                     }
-                    let sent = unsafe {
-                        SendInput(&[down], std::mem::size_of::<INPUT>() as i32)
-                    };
+                    let sent = unsafe { SendInput(&[down], std::mem::size_of::<INPUT>() as i32) };
                     if sent != 1 {
-                        anyhow::bail!("SendInput failed to send keyboard down event (sent {sent} of 1)");
+                        anyhow::bail!(
+                            "SendInput failed to send keyboard down event (sent {sent} of 1)"
+                        );
                     }
                     std::thread::sleep(Duration::from_millis(20));
-                    let sent = unsafe {
-                        SendInput(&[up], std::mem::size_of::<INPUT>() as i32)
-                    };
+                    let sent = unsafe { SendInput(&[up], std::mem::size_of::<INPUT>() as i32) };
                     if sent != 1 {
-                        anyhow::bail!("SendInput failed to send keyboard up event (sent {sent} of 1)");
+                        anyhow::bail!(
+                            "SendInput failed to send keyboard up event (sent {sent} of 1)"
+                        );
                     }
                 }
             }
@@ -302,16 +308,12 @@ impl Backend for WindowsBackend {
                         },
                     },
                 };
-                let sent = unsafe {
-                    SendInput(&[move_right], std::mem::size_of::<INPUT>() as i32)
-                };
+                let sent = unsafe { SendInput(&[move_right], std::mem::size_of::<INPUT>() as i32) };
                 if sent != 1 {
                     anyhow::bail!("SendInput failed to send mouse move event (sent {sent} of 1)");
                 }
                 std::thread::sleep(Duration::from_millis(10));
-                let sent = unsafe {
-                    SendInput(&[move_back], std::mem::size_of::<INPUT>() as i32)
-                };
+                let sent = unsafe { SendInput(&[move_back], std::mem::size_of::<INPUT>() as i32) };
                 if sent != 1 {
                     anyhow::bail!("SendInput failed to send mouse return event (sent {sent} of 1)");
                 }
@@ -328,7 +330,10 @@ mod tests {
     #[test]
     fn matches_case_insensitive_substring() {
         assert!(title_matches("Omnissa Horizon Client", "horizon"));
-        assert!(title_matches("OMNISSA HORIZON CLIENT - Desktop 1", "horizon client"));
+        assert!(title_matches(
+            "OMNISSA HORIZON CLIENT - Desktop 1",
+            "horizon client"
+        ));
         assert!(title_matches("Omnissa Horizon Client", "OMNISSA"));
         assert!(title_matches("Horizon", "HORIZON"));
     }

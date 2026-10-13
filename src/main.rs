@@ -29,12 +29,28 @@ impl ValueEnum for BackendKind {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "rdpbeacon", version, about = "Keep Omnissa Horizon Client sessions active")]
+#[command(
+    name = "rdpbeacon",
+    version,
+    about = "Keep Omnissa Horizon Client sessions active"
+)]
 pub struct Cli {
-    #[arg(short, long, global = true, value_name = "PATH", help = "Path to TOML configuration file")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_name = "PATH",
+        help = "Path to TOML configuration file"
+    )]
     pub config: Option<PathBuf>,
 
-    #[arg(short, long, global = true, value_enum, help = "Display backend to use (x11, wayland, windows)")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_enum,
+        help = "Display backend to use (x11, wayland, windows)"
+    )]
     pub backend: Option<BackendKind>,
 
     #[arg(short, long, global = true, help = "Enable verbose (debug) logging")]
@@ -92,16 +108,28 @@ fn main() -> anyhow::Result<()> {
 
     if matches!(cli.command, Commands::Run { daemon: true, .. }) {
         return daemon::launch::launch(daemon::launch::LaunchOptions {
-            config: cli.config, backend: cli.backend, verbose: cli.verbose,
+            config: cli.config,
+            backend: cli.backend,
+            verbose: cli.verbose,
         });
     }
-    if matches!(cli.command, Commands::Run { internal_daemon: true, .. }) {
+    if matches!(
+        cli.command,
+        Commands::Run {
+            internal_daemon: true,
+            ..
+        }
+    ) {
         let result = (|| {
             daemon::launch::prepare_child()?;
-            anyhow::bail!("Tray daemon integration is not yet available")
+            let cfg = Config::load(cli.config.as_deref())?;
+            let kind = resolve_backend_kind(cli.backend, cfg.backend)?;
+            daemon::run(cfg, kind, cli.verbose)
         })();
-        daemon::launch::report_startup(result.map_err(|e: anyhow::Error| format!("{e:#}")))?;
-        return Ok(());
+        if let Err(error) = &result {
+            let _ = daemon::launch::report_startup(Err(format!("{error:#}")));
+        }
+        return result;
     }
 
     let default_filter = if cli.verbose { "debug" } else { "info" };
@@ -188,7 +216,13 @@ mod tests {
     #[test]
     fn parses_run_subcommand() {
         let cli = Cli::try_parse_from(["rdpbeacon", "run"]).unwrap();
-        assert_eq!(cli.command, Commands::Run { daemon: false, internal_daemon: false });
+        assert_eq!(
+            cli.command,
+            Commands::Run {
+                daemon: false,
+                internal_daemon: false
+            }
+        );
         assert_eq!(cli.backend, None);
         assert_eq!(cli.config, None);
     }
@@ -218,7 +252,8 @@ mod tests {
     #[test]
     fn resolve_backend_precedence() {
         // CLI flag takes highest priority over config
-        let kind = resolve_backend_kind(Some(BackendKind::Windows), Some(BackendKind::X11)).unwrap();
+        let kind =
+            resolve_backend_kind(Some(BackendKind::Windows), Some(BackendKind::X11)).unwrap();
         assert_eq!(kind, BackendKind::Windows);
 
         // Config takes second priority when CLI flag is None
@@ -241,4 +276,3 @@ mod tests {
         assert!(cli.verbose);
     }
 }
-

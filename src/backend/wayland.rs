@@ -1,9 +1,9 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::time::Duration;
 use anyhow::{Context, Result};
 use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
 use evdev::{AttributeSet, EventType, InputEvent, Key, RelativeAxisType};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::backend::{Backend, WindowId};
 use crate::config::Mode;
@@ -161,8 +161,7 @@ impl WaylandBackend {
         rel_axes.insert(RelativeAxisType::REL_X);
         rel_axes.insert(RelativeAxisType::REL_Y);
 
-        let builder = VirtualDeviceBuilder::new()
-            .map_err(wrap_uinput_err)?;
+        let builder = VirtualDeviceBuilder::new().map_err(wrap_uinput_err)?;
 
         let device = builder
             .name("RDPBeacon Virtual Device")
@@ -238,16 +237,10 @@ impl Backend for WaylandBackend {
                 }
             }
             Mode::Mouse => {
-                let move_right = InputEvent::new_now(
-                    EventType::RELATIVE,
-                    RelativeAxisType::REL_X.0,
-                    1,
-                );
-                let move_left = InputEvent::new_now(
-                    EventType::RELATIVE,
-                    RelativeAxisType::REL_X.0,
-                    -1,
-                );
+                let move_right =
+                    InputEvent::new_now(EventType::RELATIVE, RelativeAxisType::REL_X.0, 1);
+                let move_left =
+                    InputEvent::new_now(EventType::RELATIVE, RelativeAxisType::REL_X.0, -1);
                 dev.emit(&[move_right])
                     .context("Failed to emit relative mouse +1 px motion via uinput")?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
