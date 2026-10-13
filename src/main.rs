@@ -2,6 +2,7 @@ mod backend;
 mod config;
 mod daemon;
 mod scheduler;
+mod tray;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
