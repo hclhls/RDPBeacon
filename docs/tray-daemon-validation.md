@@ -9,14 +9,14 @@
 
 ## Automated checks
 
-- Linux: 72 unit tests passed, locked compilation check and release build passed.
-- Windows target: 56 unit tests passed under Wine, locked compilation check
+- Linux: 74 unit tests passed, locked compilation check and release build passed.
+- Windows target: 59 unit tests passed under Wine, locked compilation check
   and release build passed.
 - Rust formatting and whitespace checks passed. An official temporary rustfmt
   installation was used because the host's default Cargo lacked cargo-fmt.
 
-Test counts describe the initial implementation before any final review fixes.
-The final completion report records checks for the final commit.
+Test counts include the final review regressions. The Windows run explicitly
+included the normally ignored interactive menu test under Wine.
 
 ## Desktop and lifecycle checks
 
@@ -30,6 +30,8 @@ and the log had mode 0600. Quit removed both test daemons and their tray service
 A separate D-Bus session without a tray host rejected startup with a clear
 message and exit status 1. A disposable StatusNotifierWatcher on an isolated
 D-Bus session accepted startup; stopping that host caused the daemon to exit.
+A regression probe kept the Watcher alive while its host-registration property
+became false; the daemon exited in that case too.
 
 The Windows release executable launched successfully in Wine with `run --daemon`.
 Posting the close request to its hidden tray window exercised the graceful Quit
@@ -61,3 +63,26 @@ these checks. The README includes the manual checklist.
   Wine and Windows remain a validation limitation.
 - Review tools became available after planning. Native implementation remained
   selected and an independent final reviewer was used, adding review time.
+
+## Final review fixes
+
+The independent reviewer identified four issues. Windows callback state now uses
+raw allocation ownership until its native window is destroyed. Its native UI
+loop runs on a separate thread so a modal menu cannot block the coordinator;
+close/shutdown requests dismiss the menu. Linux additionally polls the uncached
+host-registration property with a one-second D-Bus timeout. Log writers use a
+shared lock file and reopen the current log under that lock before every write,
+preventing stale handles from rotating another process's replacement file.
+The lock handle is closed after each write, including error paths. This avoids
+a lock-release error reproduced under Wine with Rust 1.99's explicit unlock.
+
+Windows menu tests cover coordinator responsiveness, close while the menu is
+open, and destroying the host while its menu is open. Shutdown uses persistent
+state checked after modal dispatch rather than a WM_QUIT message that a nested
+menu loop could consume. The callback ownership regression checks pointer
+stability and exactly-once destruction; it is not a Miri run.
+
+Additional tradeoffs are one Windows UI thread, one Linux monitoring thread and
+a periodic D-Bus query, and a private lock file plus per-record file opens.
+Single-instance enforcement, autostart, worker auto-restart, and a guarantee
+that remote screen locking never disconnects remain outside the approved scope.

@@ -125,7 +125,9 @@ Log files are created only when logging is enabled:
 | Windows | `%LOCALAPPDATA%\RDPBeacon\logs\rdpbeacon.log` |
 
 Records include a Unix timestamp in milliseconds, severity, and message. Files
-rotate at 5 MiB, keeping the current log and one `rdpbeacon.log.1` backup. Logging
+rotate at 5 MiB, keeping the current log and one `rdpbeacon.log.1` backup. A
+private `rdpbeacon.log.lock` file serializes writers from concurrent launches.
+Logging
 errors clear the checkbox and appear in status; the beacon worker continues.
 Enabling logging after a worker failure records its saved stop reason.
 

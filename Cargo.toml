@@ -23,6 +23,7 @@ x11rb = { version = "0.13", features = ["xtest", "screensaver"] }
 evdev = "0.12"
 rustix = { version = "1", features = ["process", "stdio"] }
 ksni = { version = "0.3", features = ["blocking"] }
+zbus = { version = "5", default-features = false, features = ["blocking-api", "tokio"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

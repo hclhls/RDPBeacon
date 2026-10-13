@@ -2,6 +2,8 @@ use crate::daemon::{AppState, ControlEvent, TrayView};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+#[cfg(any(windows, test))]
+mod callback;
 mod icon;
 #[cfg(target_os = "linux")]
 mod linux;

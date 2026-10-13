@@ -1,7 +1,11 @@
+use super::callback::CallbackState;
 use super::{ControlEvent, MenuModel, TrayHost, TrayView, LOGGING_ID, QUIT_ID};
 use anyhow::Context;
-use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::JoinHandle;
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -11,16 +15,20 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const CALLBACK: u32 = WM_APP + 1;
+const UPDATE: u32 = WM_APP + 2;
+const SHUTDOWN: u32 = WM_APP + 3;
 
 struct WindowState {
     menu: MenuModel,
     icon: HICON,
     taskbar_created: u32,
+    updates: Receiver<TrayView>,
+    shutdown: bool,
 }
 
-struct WindowsHost {
+struct NativeHost {
     hwnd: HWND,
-    state: Box<WindowState>,
+    state: CallbackState<WindowState>,
     instance: HINSTANCE,
 }
 
@@ -56,9 +64,21 @@ unsafe extern "system" fn window_proc(
     }
     let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
     if !ptr.is_null() {
+        if message == UPDATE {
+            while let Ok(view) = (*ptr).updates.try_recv() {
+                (*ptr).menu.update(&view);
+            }
+            return LRESULT(0);
+        }
+        if message == SHUTDOWN {
+            (*ptr).shutdown = true;
+            let _ = EndMenu();
+            return LRESULT(0);
+        }
         if message == (*ptr).taskbar_created {
             let icon = (*ptr).icon;
-            (*ptr).menu.restore_icon(|| register_icon(hwnd, icon));
+            let restored = register_icon(hwnd, icon);
+            (*ptr).menu.restore_icon(|| restored);
             return LRESULT(0);
         }
         if message == CALLBACK
@@ -80,6 +100,7 @@ unsafe extern "system" fn window_proc(
         }
         if message == WM_CLOSE {
             (*ptr).menu.activate(QUIT_ID);
+            let _ = EndMenu();
             return LRESULT(0);
         }
         if message == WM_NCDESTROY {
@@ -129,7 +150,10 @@ unsafe fn show_menu(hwnd: HWND, view: &TrayView) -> anyhow::Result<u32> {
     result
 }
 
-pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>> {
+fn create_native(
+    events: Sender<ControlEvent>,
+    updates: Receiver<TrayView>,
+) -> anyhow::Result<NativeHost> {
     unsafe {
         let instance = HINSTANCE(GetModuleHandleW(None)?.0);
         let class = WNDCLASSW {
@@ -167,12 +191,14 @@ pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>>
                 return Err(error.into());
             }
         };
-        let mut state = Box::new(WindowState {
+        let state = CallbackState::new(WindowState {
             menu: MenuModel::new(events),
             icon,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
+            updates,
+            shutdown: false,
         });
-        if state.taskbar_created == 0 {
+        if (*state.as_ptr()).taskbar_created == 0 {
             let _ = DestroyIcon(icon);
             let _ = UnregisterClassW(w!("RDPBeaconTray"), instance);
             anyhow::bail!("Register Explorer restart notification failed");
@@ -189,7 +215,7 @@ pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>>
             None,
             None,
             instance,
-            Some((&mut *state as *mut WindowState).cast()),
+            Some(state.as_ptr().cast()),
         ) {
             Ok(hwnd) => hwnd,
             Err(error) => {
@@ -198,7 +224,7 @@ pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>>
                 return Err(error.into());
             }
         };
-        let host = WindowsHost {
+        let host = NativeHost {
             hwnd,
             state,
             instance,
@@ -206,43 +232,92 @@ pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>>
         if !register_icon(hwnd, icon) {
             anyhow::bail!("Register Windows notification icon failed");
         }
-        Ok(Box::new(host))
+        Ok(host)
+    }
+}
+
+struct WindowsHost {
+    hwnd: isize,
+    updates: Sender<TrayView>,
+    ui: Option<JoinHandle<()>>,
+}
+
+pub fn create(events: Sender<ControlEvent>) -> anyhow::Result<Box<dyn TrayHost>> {
+    Ok(Box::new(WindowsHost::new(events)?))
+}
+
+impl WindowsHost {
+    fn new(events: Sender<ControlEvent>) -> anyhow::Result<Self> {
+        let (updates, incoming) = mpsc::channel();
+        let (ready, startup) = mpsc::channel();
+        let ui = std::thread::Builder::new()
+            .name("rdpbeacon-tray-ui".into())
+            .spawn(move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let host = create_native(events.clone(), incoming)?;
+                    ready.send(Ok(host.hwnd.0 as isize))?;
+                    // Native menus run a nested modal loop on this thread. The
+                    // coordinator and beacon worker remain responsive independently.
+                    unsafe {
+                        loop {
+                            let mut message = MSG::default();
+                            let result = GetMessageW(&mut message, None, 0, 0).0;
+                            if result == -1 {
+                                return Err(windows::core::Error::from_win32())
+                                    .context("Windows tray message loop");
+                            }
+                            if result == 0 {
+                                break;
+                            }
+                            let _ = TranslateMessage(&message);
+                            DispatchMessageW(&message);
+                            // A modal menu can consume WM_QUIT. Keep shutdown state
+                            // outside the message queue and check after it unwinds.
+                            if (*host.state.as_ptr()).shutdown {
+                                break;
+                            }
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    let reason = format!("{error:#}");
+                    let _ = ready.send(Err(reason.clone()));
+                    let _ = events.send(ControlEvent::TrayUnavailable(reason));
+                }
+            })
+            .context("Start Windows tray thread")?;
+        match startup.recv() {
+            Ok(Ok(hwnd)) => Ok(Self {
+                hwnd,
+                updates,
+                ui: Some(ui),
+            }),
+            result => {
+                let _ = ui.join();
+                let reason = match result {
+                    Ok(Err(reason)) => reason,
+                    _ => "Windows tray thread exited before readiness".into(),
+                };
+                anyhow::bail!("{reason}");
+            }
+        }
     }
 }
 
 impl TrayHost for WindowsHost {
     fn update(&mut self, view: &TrayView) -> anyhow::Result<()> {
-        self.state.menu.update(view);
-        Ok(())
+        self.updates
+            .send(view.clone())
+            .context("Update Windows tray state")?;
+        unsafe { PostMessageW(HWND(self.hwnd as *mut _), UPDATE, WPARAM(0), LPARAM(0)) }
+            .context("Wake Windows tray for state update")
     }
     fn pump(&mut self, timeout: Duration) -> anyhow::Result<()> {
-        let deadline = Instant::now() + timeout;
-        unsafe {
-            loop {
-                let mut message = MSG::default();
-                while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
-                    if message.message == WM_QUIT {
-                        self.state.menu.activate(QUIT_ID);
-                    }
-                    let _ = TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    break;
-                }
-                let result = MsgWaitForMultipleObjects(
-                    None,
-                    false,
-                    remaining.as_millis() as u32,
-                    QS_ALLINPUT,
-                );
-                if result == windows::Win32::Foundation::WAIT_FAILED {
-                    return Err(windows::core::Error::from_win32())
-                        .context("Pump Windows tray messages");
-                }
-            }
+        if self.ui.as_ref().is_some_and(|thread| thread.is_finished()) {
+            anyhow::bail!("Windows tray thread stopped");
         }
+        std::thread::sleep(timeout);
         Ok(())
     }
 }
@@ -250,10 +325,77 @@ impl TrayHost for WindowsHost {
 impl Drop for WindowsHost {
     fn drop(&mut self) {
         unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE, &icon_data(self.hwnd, self.state.icon));
+            let _ = PostMessageW(HWND(self.hwnd as *mut _), SHUTDOWN, WPARAM(0), LPARAM(0));
+        }
+        if let Some(ui) = self.ui.take() {
+            let _ = ui.join();
+        }
+    }
+}
+
+impl Drop for NativeHost {
+    fn drop(&mut self) {
+        unsafe {
+            let icon = (*self.state.as_ptr()).icon;
+            let _ = Shell_NotifyIconW(NIM_DELETE, &icon_data(self.hwnd, icon));
             let _ = DestroyWindow(self.hwnd);
-            let _ = DestroyIcon(self.state.icon);
+            let _ = DestroyIcon(icon);
             let _ = UnregisterClassW(w!("RDPBeaconTray"), self.instance);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn open_menu(host: &WindowsHost) {
+        let hwnd = HWND(host.hwnd as *mut _);
+        unsafe {
+            PostMessageW(hwnd, CALLBACK, WPARAM(1), LPARAM(WM_RBUTTONUP as isize)).unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut entered = false;
+        while Instant::now() < deadline {
+            unsafe {
+                let id = GetWindowThreadProcessId(hwnd, None);
+                let mut info = GUITHREADINFO {
+                    cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                    ..Default::default()
+                };
+                GetGUIThreadInfo(id, &mut info).unwrap();
+                if info.flags.contains(GUI_INMENUMODE) {
+                    entered = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(entered, "Native menu never opened");
+    }
+
+    #[test]
+    #[ignore = "Requires an interactive Windows desktop or Wine tray"]
+    fn menu_open_does_not_block_coordinator_and_close_ends_menu() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut host = WindowsHost::new(tx).unwrap();
+        open_menu(&host);
+        let hwnd = HWND(host.hwnd as *mut _);
+        let start = Instant::now();
+        host.pump(Duration::from_millis(20)).unwrap();
+        assert!(start.elapsed() < Duration::from_millis(250));
+        unsafe {
+            PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+        }
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            ControlEvent::Quit
+        ));
+        drop(host);
+
+        // Host loss may destroy the adapter while the native menu is still open.
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let host = WindowsHost::new(tx).unwrap();
+        open_menu(&host);
+        drop(host);
     }
 }

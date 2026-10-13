@@ -834,6 +834,7 @@ dependencies = [
  "toml",
  "windows",
  "x11rb",
+ "zbus",
 ]
 
 [[package]]

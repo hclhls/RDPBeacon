@@ -12,7 +12,6 @@ const MAX_BYTES: u64 = 5 * 1024 * 1024;
 type PathResolver = Arc<dyn Fn() -> anyhow::Result<PathBuf> + Send + Sync>;
 
 struct FileSink {
-    file: Option<File>,
     path: PathBuf,
 }
 struct SharedSink {
@@ -117,13 +116,7 @@ impl LoggingControl {
     pub fn set_enabled(&self, enabled: bool) -> anyhow::Result<()> {
         let mut guard = self.shared.file.lock().unwrap_or_else(|e| e.into_inner());
         if !enabled {
-            if let Some(mut sink) = guard.take() {
-                sink.file
-                    .as_mut()
-                    .context("Log file closed")?
-                    .flush()
-                    .context("Flush daemon log")?;
-            }
+            guard.take();
             return Ok(());
         }
         if guard.is_some() {
@@ -140,10 +133,7 @@ impl LoggingControl {
         }
         dirs.create(parent)
             .with_context(|| format!("Create log directory {}", parent.display()))?;
-        let mut sink = FileSink {
-            file: Some(open_private(&path)?),
-            path,
-        };
+        let mut sink = FileSink { path };
         sink.write_record(b"INFO Logging enabled")?;
         *guard = Some(sink);
         Ok(())
@@ -168,47 +158,49 @@ fn open_private(path: &Path) -> anyhow::Result<File> {
         .with_context(|| format!("Open daemon log {}", path.display()))
 }
 
+fn open_lock(path: &Path) -> anyhow::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path).context("Open daemon log lock")
+}
+
 impl FileSink {
     fn write_record(&mut self, message: &[u8]) -> anyhow::Result<()> {
-        let millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let mut record = format!("[{millis}] ").into_bytes();
-        record.extend_from_slice(message);
-        record.truncate(MAX_BYTES as usize - 1);
-        record.push(b'\n');
-        if self
-            .file
-            .as_ref()
-            .context("Log file closed")?
-            .metadata()?
-            .len()
-            .saturating_add(record.len() as u64)
-            > MAX_BYTES
-        {
-            let backup = self.path.with_extension("log.1");
-            match std::fs::remove_file(&backup) {
-                Ok(()) => (),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                Err(e) => return Err(e).context("Remove old log backup"),
+        let lock = open_lock(&self.path.with_extension("log.lock"))?;
+        lock.lock().context("Lock shared daemon log")?;
+        // Closing this exclusively owned handle releases the lock on every exit
+        // path, including rotation failures. No other handle clones exist.
+        (|| {
+            let millis = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let mut record = format!("[{millis}] ").into_bytes();
+            record.extend_from_slice(message);
+            record.truncate(MAX_BYTES as usize - 1);
+            record.push(b'\n');
+            // Every process reopens the current path while holding the same lock.
+            // No writer retains an obsolete inode after another process rotates.
+            let mut file = open_private(&self.path)?;
+            if file.metadata()?.len().saturating_add(record.len() as u64) > MAX_BYTES {
+                let backup = self.path.with_extension("log.1");
+                match std::fs::remove_file(&backup) {
+                    Ok(()) => (),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(e).context("Remove old log backup"),
+                }
+                drop(file);
+                std::fs::rename(&self.path, &backup).context("Rotate daemon log")?;
+                file = open_private(&self.path)?;
             }
-            if let Some(mut file) = self.file.take() {
-                file.flush()?;
-            }
-            std::fs::rename(&self.path, &backup).context("Rotate daemon log")?;
-            self.file = Some(open_private(&self.path)?);
-        }
-        self.file
-            .as_mut()
-            .context("Log file closed")?
-            .write_all(&record)
-            .context("Write daemon log")?;
-        self.file
-            .as_mut()
-            .context("Log file closed")?
-            .flush()
-            .context("Flush daemon log")
+            file.write_all(&record).context("Write daemon log")?;
+            file.flush().context("Flush daemon log")
+        })()
     }
 }
 
@@ -243,16 +235,7 @@ impl Log for DaemonLogger {
     }
 
     fn flush(&self) {
-        let mut guard = self.shared.file.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(sink) = guard.as_mut() {
-            if let Err(error) = sink.file.as_mut().expect("Open sink").flush() {
-                *guard = None;
-                let _ = self
-                    .shared
-                    .events
-                    .send(ControlEvent::LoggingFailed(error.to_string()));
-            }
-        }
+        // Each record is flushed before its cross-process lock is released.
     }
 }
 
@@ -260,6 +243,38 @@ impl Log for DaemonLogger {
 mod tests {
     use super::*;
     use log::Log;
+
+    #[test]
+    fn independent_sinks_preserve_backup_after_one_rotates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rdpbeacon.log");
+        let (tx, _) = std::sync::mpsc::channel();
+        let resolve: PathResolver = Arc::new({
+            let path = path.clone();
+            move || Ok(path.clone())
+        });
+        let (first, first_control) = build_logger(false, None, resolve.clone(), tx.clone());
+        let (second, second_control) = build_logger(false, None, resolve, tx);
+        first_control.set_enabled(true).unwrap();
+        second_control.set_enabled(true).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(5 * 1024 * 1024)
+            .unwrap();
+        emit(&first, "first after rotation");
+        emit(&second, "second after rotation");
+        assert_eq!(
+            std::fs::metadata(path.with_extension("log.1"))
+                .unwrap()
+                .len(),
+            5 * 1024 * 1024
+        );
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("first after rotation"));
+        assert!(contents.contains("second after rotation"));
+    }
 
     fn fixture(
         verbose: bool,
