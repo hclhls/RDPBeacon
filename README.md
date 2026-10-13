@@ -18,6 +18,7 @@ A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **
 - **Cross-Platform**: First-class support for Linux (X11), Linux (Wayland), and Windows.
 - **Zero Caching**: Window lookup is re-evaluated every cycle, gracefully handling client restarts or window title changes.
 - **Graceful Shutdown**: Responsive to `SIGINT` / `Ctrl-C` even during sleep intervals.
+- **Tray Daemon**: `run --daemon` keeps running after the launching terminal closes. Use the local tray to enable file logging or quit on Linux and Windows.
 
 ---
 
@@ -70,7 +71,7 @@ rdpbeacon [OPTIONS] <COMMAND>
 
 | Subcommand | Description |
 | :--- | :--- |
-| `run` | Starts the daemon loop. Periodically sends beacons when idle. Exits after `max_misses` consecutive cycles where Horizon is not found. Handles `Ctrl-C` for clean shutdown. |
+| `run` | Runs the beacon loop in the terminal. Add `--daemon` to detach with tray controls. Handles `Ctrl-C` for clean shutdown. |
 | `once` | Executes a single beacon cycle immediately (ignoring `idle_threshold`). Prints the outcome (`Sent`, `SkippedNoWindow`, or `SkippedActive`). |
 | `check` | Inspects your environment: reports the detected/selected backend, current system idle time, and Horizon window status. |
 
@@ -89,9 +90,57 @@ rdpbeacon run
 # Run with a custom config file
 rdpbeacon --config config.toml run
 
+# Run in the background with a tray icon
+rdpbeacon --config config.toml run --daemon
+
 # Force the X11 backend
 rdpbeacon --backend x11 run
 ```
+
+---
+
+## Tray Daemon Mode
+
+`rdpbeacon run --daemon` returns after the background application has initialized
+its backend and registered its local tray. You can then close the terminal.
+An initialization failure or a ten-second startup timeout returns an error and
+cleans up the child process. Use a regular configuration file; temporary shell
+process-substitution paths may disappear before the background process reads them.
+
+The tray menu provides:
+
+- **Status**: `Running`, `Stopping`, or `Stopped: <reason>`.
+- **Enable logging**: An initially unchecked toggle. Enabling it appends file
+  logs; disabling it stops recording while beacons continue. Each launch starts
+  with logging disabled. `-v` enables debug verbosity when logging is turned on;
+  `RUST_LOG` controls filtering without turning logging on.
+- **Quit**: Stops the worker after any current beacon and focus-restoration
+  attempt finish, then removes the tray. Repeated clicks are harmless.
+
+Log files are created only when logging is enabled:
+
+| Platform | Log path |
+| :--- | :--- |
+| Linux | `$XDG_STATE_HOME/rdpbeacon/rdpbeacon.log`, or `$HOME/.local/state/rdpbeacon/rdpbeacon.log` when the state variable is absent or relative |
+| Windows | `%LOCALAPPDATA%\RDPBeacon\logs\rdpbeacon.log` |
+
+Records include a Unix timestamp in milliseconds, severity, and message. Files
+rotate at 5 MiB, keeping the current log and one `rdpbeacon.log.1` backup. Logging
+errors clear the checkbox and appear in status; the beacon worker continues.
+Enabling logging after a worker failure records its saved stop reason.
+
+Linux requires a running session D-Bus and a StatusNotifierItem tray host. KDE
+and other compatible desktops provide this; GNOME typically uses the
+[AppIndicator and KStatusNotifierItem Support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+No GTK development packages are required to build RDPBeacon. If the tray host
+is unavailable, daemon startup fails. If it disappears later, the application
+shuts down gracefully. Windows uses the native notification area and restores
+its icon when Explorer restarts; a failed restoration triggers graceful shutdown.
+
+The existing `max_misses` limit stops beacon processing when Horizon remains
+missing. Foreground `run` exits with an error; daemon mode keeps the tray with
+the stopped reason until you choose Quit. There is no automatic restart, login
+autostart, or single-instance enforcement. Each launch starts a separate worker.
 
 ---
 
@@ -184,6 +233,16 @@ Follow this checklist to verify your RDPBeacon installation:
 
 4. **Verify Remote VM Session**:
    - Confirm that the remote desktop session within Omnissa Horizon Client remains active and does not disconnect due to inactivity.
+
+5. **Test Tray Mode (`rdpbeacon run --daemon`)**:
+   - Launch with a regular temporary TOML file, close the terminal, and verify the tray remains.
+   - On a fresh profile, verify logging is unchecked and no log file exists.
+   - Enable logging, inspect the file, disable logging, and enable it again to verify append behavior.
+   - Choose Quit during a sleep and during a beacon; verify process exit and focus restoration.
+   - With a short interval and `max_misses = 1`, close Horizon and verify the tray reports Stopped; enable logging to capture the reason, then quit.
+   - Linux: test with a compatible tray host on X11 and Wayland. An isolated D-Bus session without a tray host must fail startup. Host loss must stop the daemon.
+   - Windows: restart Explorer and verify the icon returns and the menu remains usable.
+   - Record the desktops actually tested. Wine tests or cross-compilation do not replace Windows desktop or Wayland input-delivery checks.
 
 ---
 

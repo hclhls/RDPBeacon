@@ -31,10 +31,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo check
-        run: cargo check
+        run: cargo check --locked
 
       - name: Cargo test
-        run: cargo test
+        run: cargo test --locked
 
       - name: Cargo build (release)
-        run: cargo build --release
+        run: cargo build --release --locked
