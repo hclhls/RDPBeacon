@@ -1,5 +1,6 @@
 mod backend;
 mod config;
+mod daemon;
 mod scheduler;
 
 use std::path::PathBuf;
