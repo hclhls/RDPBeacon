@@ -1,3 +1,5 @@
+pub mod launch;
+
 #[derive(Debug)]
 pub enum ControlEvent {
     SetLogging(bool),

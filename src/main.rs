@@ -46,7 +46,12 @@ pub struct Cli {
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum Commands {
     /// Run the beacon daemon loop
-    Run,
+    Run {
+        #[arg(long, help = "Run in the background with tray controls")]
+        daemon: bool,
+        #[arg(long, hide = true, conflicts_with = "daemon")]
+        internal_daemon: bool,
+    },
     /// Send a single beacon cycle immediately
     Once,
     /// Inspect environment and check Horizon window status
@@ -84,6 +89,20 @@ pub fn resolve_backend_kind(
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    if matches!(cli.command, Commands::Run { daemon: true, .. }) {
+        return daemon::launch::launch(daemon::launch::LaunchOptions {
+            config: cli.config, backend: cli.backend, verbose: cli.verbose,
+        });
+    }
+    if matches!(cli.command, Commands::Run { internal_daemon: true, .. }) {
+        let result = (|| {
+            daemon::launch::prepare_child()?;
+            anyhow::bail!("Tray daemon integration is not yet available")
+        })();
+        daemon::launch::report_startup(result.map_err(|e: anyhow::Error| format!("{e:#}")))?;
+        return Ok(());
+    }
+
     let default_filter = if cli.verbose { "debug" } else { "info" };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
         .init();
@@ -92,7 +111,7 @@ fn main() -> anyhow::Result<()> {
     let backend_kind = resolve_backend_kind(cli.backend, cfg.backend)?;
 
     match cli.command {
-        Commands::Run => {
+        Commands::Run { .. } => {
             let stop = Arc::new(AtomicBool::new(false));
             let stop_clone = Arc::clone(&stop);
             ctrlc::set_handler(move || {
@@ -154,9 +173,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn run_accepts_daemon_flag() {
+        assert!(Cli::try_parse_from(["rdpbeacon", "run", "--daemon"]).is_ok());
+    }
+
+    #[test]
+    fn daemon_flag_is_run_only() {
+        for command in ["once", "check"] {
+            assert!(Cli::try_parse_from(["rdpbeacon", command, "--daemon"]).is_err());
+        }
+    }
+
+    #[test]
     fn parses_run_subcommand() {
         let cli = Cli::try_parse_from(["rdpbeacon", "run"]).unwrap();
-        assert_eq!(cli.command, Commands::Run);
+        assert_eq!(cli.command, Commands::Run { daemon: false, internal_daemon: false });
         assert_eq!(cli.backend, None);
         assert_eq!(cli.config, None);
     }

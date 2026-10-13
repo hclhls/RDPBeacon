@@ -563,6 +563,7 @@ dependencies = [
  "humantime-serde",
  "log",
  "rand",
+ "rustix",
  "serde",
  "toml",
  "windows",
