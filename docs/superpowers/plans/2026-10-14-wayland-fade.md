@@ -458,7 +458,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Modify: `docs/superpowers/specs/2026-10-14-wayland-fade-design.md` (worker thread -> inline `Mutex`)
 
 **Interfaces:**
-- Consumes: `Session::{connect, show, animate, has_overlay, destroy}` (Task 2).
+- Consumes: `Session::{connect, show, animate, destroy}` (Task 2).
 - Produces: `WaylandBackend::fade_out/fade_in` overrides of `Backend`.
 
 - [ ] **Step 1: Write the failing tests**

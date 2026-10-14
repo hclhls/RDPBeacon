@@ -30,6 +30,14 @@ pub fn premultiplied_black_pixel(alpha: u8) -> [u8; 4] {
     [0, 0, 0, alpha]
 }
 
+/// Returns the viewport destination for a configure size, or `None` when either side is zero.
+fn viewport_destination(width: u32, height: u32) -> Option<(i32, i32)> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some((width as i32, height as i32))
+}
+
 /// One black layer-shell surface covering a single output.
 struct Overlay {
     surface: WlSurface,
@@ -103,10 +111,6 @@ impl Session {
             outputs,
             overlays: Vec::new(),
         }))
-    }
-
-    pub fn has_overlay(&self) -> bool {
-        !self.overlays.is_empty()
     }
 
     /// Creates one overlay per output and waits until the compositor configures all of them.
@@ -258,8 +262,11 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for State {
         } = event
         {
             layer.ack_configure(serial);
-            if let Some((_, viewport)) = state.viewports.iter().find(|(l, _)| l == layer) {
-                viewport.set_destination(width as i32, height as i32);
+            // A zero size means "client decides"; wp_viewport rejects it as a protocol error.
+            if let Some((w, h)) = viewport_destination(width, height) {
+                if let Some((_, viewport)) = state.viewports.iter().find(|(l, _)| l == layer) {
+                    viewport.set_destination(w, h);
+                }
             }
             state.configured += 1;
         }
@@ -308,5 +315,12 @@ mod tests {
     #[test]
     fn midpoint_keeps_colour_channels_zero() {
         assert_eq!(premultiplied_black_pixel(128), [0, 0, 0, 128]);
+    }
+
+    #[test]
+    fn viewport_destination_rejects_zero_dimensions() {
+        assert_eq!(viewport_destination(0, 1080), None);
+        assert_eq!(viewport_destination(1920, 0), None);
+        assert_eq!(viewport_destination(1920, 1080), Some((1920, 1080)));
     }
 }

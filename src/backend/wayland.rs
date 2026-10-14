@@ -274,31 +274,26 @@ impl Backend for WaylandBackend {
             .fade
             .lock()
             .map_err(|e| anyhow::anyhow!("Fade lock poisoned: {e}"))?;
-
-        if matches!(*slot, FadeSlot::Uninit) {
-            *slot = match Session::connect() {
-                Ok(Some(session)) => FadeSlot::Ready(session),
-                Ok(None) => {
-                    log::warn!(
-                        "Wayland compositor lacks zwlr_layer_shell_v1 or wp_viewporter; skipping screen fade"
-                    );
-                    FadeSlot::Unsupported
-                }
-                Err(e) => {
-                    log::warn!("Cannot set up Wayland screen fade ({e:#}); skipping");
-                    FadeSlot::Unsupported
-                }
-            };
+        if matches!(*slot, FadeSlot::Unsupported) {
+            return Ok(());
         }
 
-        if let FadeSlot::Ready(session) = &mut *slot {
-            let result = session
-                .show()
-                .and_then(|_| session.animate(duration, true));
-            if result.is_err() {
-                session.destroy();
+        // A fresh session per fade picks up hot-plugged outputs and recovers from a
+        // dead connection; dropping any stale one first destroys its overlays.
+        *slot = FadeSlot::Uninit;
+        match Session::connect()? {
+            Some(mut session) => {
+                session
+                    .show()
+                    .and_then(|_| session.animate(duration, true))?;
+                *slot = FadeSlot::Ready(session);
             }
-            return result;
+            None => {
+                log::warn!(
+                    "Wayland compositor lacks zwlr_layer_shell_v1 or wp_viewporter; skipping screen fade"
+                );
+                *slot = FadeSlot::Unsupported;
+            }
         }
         Ok(())
     }
@@ -308,14 +303,15 @@ impl Backend for WaylandBackend {
             .fade
             .lock()
             .map_err(|e| anyhow::anyhow!("Fade lock poisoned: {e}"))?;
-        if let FadeSlot::Ready(session) = &mut *slot {
-            if session.has_overlay() {
-                let result = session.animate(duration, false);
-                session.destroy();
-                return result;
-            }
+        if !matches!(*slot, FadeSlot::Ready(_)) {
+            return Ok(());
         }
-        Ok(())
+        let FadeSlot::Ready(mut session) = std::mem::replace(&mut *slot, FadeSlot::Uninit) else {
+            return Ok(());
+        };
+        // Dropping the session at the end of this call destroys the overlays and
+        // closes the connection, even if the animation failed.
+        session.animate(duration, false)
     }
 }
 
