@@ -152,8 +152,10 @@ struct Overlay {
 impl Overlay {
     fn create() -> Result<Self> {
         let (tx, rx) = mpsc::channel::<Result<isize>>();
-        let thread = std::thread::spawn(move || {
-            let hwnd = match unsafe { Self::create_window() } {
+        let thread = std::thread::Builder::new()
+            .name("fade-overlay".into())
+            .spawn(move || {
+                let hwnd = match unsafe { Self::create_window() } {
                 Ok(hwnd) => hwnd,
                 Err(e) => {
                     let _ = tx.send(Err(e));
@@ -173,7 +175,8 @@ impl Overlay {
                     DispatchMessageW(&msg);
                 }
             }
-        });
+        })
+        .context("Failed to spawn fade overlay thread")?;
 
         match rx.recv() {
             Ok(Ok(hwnd)) => Ok(Self {
@@ -515,7 +518,8 @@ impl Backend for WindowsBackend {
         }
 
         // Dropping a stale overlay asks its owner thread to close it and joins that thread.
-        drop(self.overlay.lock().unwrap().take());
+        let stale = self.overlay.lock().unwrap().take();
+        drop(stale);
 
         let overlay = Overlay::create().context("Failed to create fade overlay")?;
         // Publish the overlay immediately so Drop or fade_in can clean it up.
@@ -527,7 +531,8 @@ impl Backend for WindowsBackend {
             let alpha = fade_alpha(elapsed, duration);
             if let Err(e) = self.set_overlay_alpha(alpha) {
                 // Dropping the overlay closes it so the screen is never left dark.
-                drop(self.overlay.lock().unwrap().take());
+                let failed = self.overlay.lock().unwrap().take();
+                drop(failed);
                 return Err(e);
             }
             if elapsed >= duration {
@@ -559,7 +564,8 @@ impl Backend for WindowsBackend {
             }
         }
 
-        drop(self.overlay.lock().unwrap().take());
+        let overlay = self.overlay.lock().unwrap().take();
+        drop(overlay);
         Ok(())
     }
 }

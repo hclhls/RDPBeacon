@@ -494,7 +494,6 @@ impl Backend for X11Backend {
             let _ = self.conn.flush();
             return Err(e);
         }
-        let _ = self.conn.flush();
 
         // Save overlay so Drop or fade_in will clean it up
         *self.overlay.lock().unwrap() = Some(wid);
