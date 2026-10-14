@@ -118,16 +118,20 @@ pub trait Backend {
 
     #[allow(dead_code)]
     fn fade_out(&self, _duration: Duration) -> Result<()> {
-        log::warn!("screen fade is not supported by this backend; skipping");
+        if !FADE_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            log::warn!("screen fade is not supported by this backend; skipping");
+        }
         Ok(())
     }
 
     #[allow(dead_code)]
     fn fade_in(&self, _duration: Duration) -> Result<()> {
-        log::warn!("screen fade is not supported by this backend; skipping");
         Ok(())
     }
 }
+
+pub(crate) static FADE_WARNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub fn detect_backend_kind(
     session_type: Option<&str>,
@@ -289,5 +293,29 @@ mod tests {
             launcher_score > toolbar_score,
             "Launcher score {launcher_score} must be greater than toolbar score {toolbar_score}"
         );
+    }
+
+    #[test]
+    fn trait_default_fade_warns_only_once() {
+        struct DummyBackend;
+        impl Backend for DummyBackend {
+            fn idle_time(&self) -> Result<Duration> { Ok(Duration::ZERO) }
+            fn find_horizon_window(&self, _: &str) -> Result<Option<WindowId>> { Ok(None) }
+            fn active_window(&self) -> Result<Option<WindowId>> { Ok(None) }
+            fn focus(&self, _: WindowId) -> Result<()> { Ok(()) }
+            fn send_beacon(&self, _: Mode, _: &str) -> Result<()> { Ok(()) }
+            fn supports_focus(&self) -> bool { false }
+        }
+
+        FADE_WARNED.store(false, std::sync::atomic::Ordering::Relaxed);
+        let dummy = DummyBackend;
+
+        assert!(!FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
+        dummy.fade_out(Duration::from_millis(300)).unwrap();
+        assert!(FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
+
+        dummy.fade_out(Duration::from_millis(300)).unwrap();
+        dummy.fade_in(Duration::from_millis(300)).unwrap();
+        assert!(FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
     }
 }
