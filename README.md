@@ -271,7 +271,7 @@ Follow this checklist to verify your RDPBeacon installation:
    - **Windows**: verify that the overlay fades smoothly to black across all monitors, user clicks pass through during the fade, the beacon fires, the screen fades smoothly back in, and no overlay window is left behind.
    - **X11 with compositor**: verify that the screen fades to black, the beacon fires, the screen fades back in, and no overlay window remains.
    - **X11 without compositor**: verify that the fade is skipped with a warning logged (`No compositing manager running...`) and the beacon is still sent normally.
-   - **Wayland with layer-shell**: verify that the screen fades to black on all outputs, the beacon is still delivered to the active window, clicks pass through, the screen fades back in, and no overlay remains.
+   - **Wayland with layer-shell**: verify that the screen fades to black on all outputs, the beacon is still delivered to the active window, clicks pass through, the screen fades back in, and no overlay remains. Without a physical layer-shell desktop, `cargo test --test wayland_fade_sway` runs the same fade against a headless Sway (it skips itself if `sway`, `grim`, or `/dev/uinput` access is missing).
    - **Wayland without layer-shell (GNOME)**: verify that the fade is skipped with a warning logged (`Wayland compositor lacks zwlr_layer_shell_v1 or wp_viewporter; skipping screen fade`) and the beacon is still sent normally.
 
 ---

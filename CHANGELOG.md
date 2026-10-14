@@ -9,9 +9,14 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-14
+
 ### Added
 
 - Wayland: screen fade-out and fade-in via `wlr-layer-shell` overlays on every output (Sway, Hyprland, KDE Plasma, COSMIC). Compositors without layer-shell, such as GNOME, skip the fade with a one-time warning.
+  - Each fade opens a fresh Wayland connection, so hot-plugged outputs are picked up and a dead connection recovers on the next cycle.
+  - The overlay takes no keyboard focus and has an empty input region, so the uinput beacon still reaches the active window.
+- Opt-in integration test (`tests/wayland_fade_sway.rs`) that exercises the fade on a headless Sway; it skips itself when `sway`, `grim`, or `/dev/uinput` access is unavailable.
 
 ## [0.6.1] - 2026-10-14
 
@@ -122,7 +127,8 @@ Initial public release.
 - TOML configuration (`config.example.toml`), Apache-2.0 license, and CI for
   Linux and Windows.
 
-[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/hclhls/RDPBeacon/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/hclhls/RDPBeacon/compare/v0.6...v0.6.1
 [0.6]: https://github.com/hclhls/RDPBeacon/compare/v0.5...v0.6
 [0.5]: https://github.com/hclhls/RDPBeacon/compare/v0.4...v0.5
