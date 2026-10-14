@@ -37,17 +37,15 @@ One layer-shell surface per `wl_output`:
 A new module `src/backend/wayland_fade.rs` (Linux only) keeps the protocol code
 out of `wayland.rs`.
 
-- `WaylandFade` owns a dedicated worker thread that holds the Wayland
-  connection, event queue, and surfaces. This mirrors the Windows overlay
-  thread.
-- `fade_out(duration)` and `fade_in(duration)` send a command over an
-  `mpsc` channel and block until the worker reports completion.
-- Worker lifecycle: the thread is started lazily on the first `fade_out`.
-  Connection and global binding happen there. If binding fails (no
-  `zwlr_layer_shell_v1` or no `wp_viewporter`), a one-time warning is logged,
-  the call returns `Ok(())`, and subsequent calls are no-ops.
-- Overlay state is `Mutex`-guarded in `WaylandBackend` (as on X11). `Drop`
-  destroys surfaces and joins the worker, so a crash or early exit never
+- `Session` holds the Wayland connection, event queue, bound globals, and the
+  per-output overlays. It is created lazily on the first `fade_out` and kept in
+  a `Mutex<FadeSlot>` (`Uninit`, `Unsupported`, `Ready(Session)`) on
+  `WaylandBackend`, as X11 does with its overlay window.
+- `fade_out(duration)` and `fade_in(duration)` run the animation inline on the
+  caller's thread. If binding fails (no `zwlr_layer_shell_v1` or no
+  `wp_viewporter`) or the connection fails, a one-time warning is logged, the
+  slot becomes `Unsupported`, and later calls are no-ops.
+- `Session`'s `Drop` destroys the overlays, so a crash or early exit never
   leaves the screen black.
 - Outputs hot-plugged during a fade are ignored until the next fade.
 
@@ -73,8 +71,8 @@ Linux-only additions to `Cargo.toml`: `wayland-client`, `wayland-protocols`
 ## Testing
 
 - Unit tests for `premultiplied_black_pixel` (alpha 0, 255, midpoint).
-- Unit test that `fade_out`/`fade_in` on a backend built via `test_backend()`
-  (no worker, no compositor) return `Ok` without panicking.
+- Unit tests that `fade_out` with zero duration and `fade_in` without a prior
+  `fade_out` return `Ok` on a `test_backend()` without opening a connection.
 - Scheduler tests are unchanged; they already cover the fade ordering.
 - Rendering cannot be unit tested. Update the README fade smoke-test
   checklist: Wayland on a layer-shell compositor (fade visible, beacon still

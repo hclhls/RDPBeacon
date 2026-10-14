@@ -9,6 +9,10 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Wayland: screen fade-out and fade-in via `wlr-layer-shell` overlays on every output (Sway, Hyprland, KDE Plasma, COSMIC). Compositors without layer-shell, such as GNOME, skip the fade with a one-time warning.
+
 ## [0.6.1] - 2026-10-14
 
 ### Fixed

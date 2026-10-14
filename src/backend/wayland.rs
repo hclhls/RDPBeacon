@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::backend::wayland_fade::Session;
 use crate::backend::{Backend, WindowId};
 use crate::config::Mode;
 
@@ -146,8 +147,16 @@ pub fn key_code(name: &str) -> Result<Key> {
     anyhow::bail!("Unknown or unsupported key name for Wayland backend: {name}")
 }
 
+/// Lazily created fade session. `Unsupported` is sticky after one warning.
+enum FadeSlot {
+    Uninit,
+    Unsupported,
+    Ready(Session),
+}
+
 pub struct WaylandBackend {
     device: Mutex<Option<VirtualDevice>>,
+    fade: Mutex<FadeSlot>,
 }
 
 impl WaylandBackend {
@@ -178,6 +187,7 @@ impl WaylandBackend {
 
         Ok(Self {
             device: Mutex::new(Some(device)),
+            fade: Mutex::new(FadeSlot::Uninit),
         })
     }
 
@@ -185,6 +195,7 @@ impl WaylandBackend {
     pub(crate) fn test_backend() -> Self {
         Self {
             device: Mutex::new(None),
+            fade: Mutex::new(FadeSlot::Uninit),
         }
     }
 }
@@ -253,6 +264,58 @@ impl Backend for WaylandBackend {
 
     fn supports_focus(&self) -> bool {
         false
+    }
+
+    fn fade_out(&self, duration: Duration) -> Result<()> {
+        if duration.is_zero() {
+            return Ok(());
+        }
+        let mut slot = self
+            .fade
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Fade lock poisoned: {e}"))?;
+
+        if matches!(*slot, FadeSlot::Uninit) {
+            *slot = match Session::connect() {
+                Ok(Some(session)) => FadeSlot::Ready(session),
+                Ok(None) => {
+                    log::warn!(
+                        "Wayland compositor lacks zwlr_layer_shell_v1 or wp_viewporter; skipping screen fade"
+                    );
+                    FadeSlot::Unsupported
+                }
+                Err(e) => {
+                    log::warn!("Cannot set up Wayland screen fade ({e:#}); skipping");
+                    FadeSlot::Unsupported
+                }
+            };
+        }
+
+        if let FadeSlot::Ready(session) = &mut *slot {
+            let result = session
+                .show()
+                .and_then(|_| session.animate(duration, true));
+            if result.is_err() {
+                session.destroy();
+            }
+            return result;
+        }
+        Ok(())
+    }
+
+    fn fade_in(&self, duration: Duration) -> Result<()> {
+        let mut slot = self
+            .fade
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Fade lock poisoned: {e}"))?;
+        if let FadeSlot::Ready(session) = &mut *slot {
+            if session.has_overlay() {
+                let result = session.animate(duration, false);
+                session.destroy();
+                return result;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -346,5 +409,20 @@ mod tests {
         assert_eq!(key_code("0").unwrap(), Key::KEY_0);
         assert_eq!(key_code("9").unwrap(), Key::KEY_9);
         assert_eq!(key_code("0x1e").unwrap(), Key::new(0x1e));
+    }
+
+    #[test]
+    fn fade_is_noop_when_duration_is_zero() {
+        let backend = WaylandBackend::test_backend();
+        backend.fade_out(Duration::ZERO).unwrap();
+        backend.fade_in(Duration::ZERO).unwrap();
+        assert!(matches!(*backend.fade.lock().unwrap(), FadeSlot::Uninit));
+    }
+
+    #[test]
+    fn fade_in_without_fade_out_is_noop() {
+        let backend = WaylandBackend::test_backend();
+        backend.fade_in(Duration::from_millis(300)).unwrap();
+        assert!(matches!(*backend.fade.lock().unwrap(), FadeSlot::Uninit));
     }
 }

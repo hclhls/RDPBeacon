@@ -163,7 +163,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Inactivity threshold before sending a beacon when the Horizon window is currently focused. If you are actively typing inside Horizon, the cycle is skipped. Background sessions are kept alive regardless. |
 | `notify_before` | duration | `"0s"` | Show a desktop notification this long before each beacon (D-Bus on Linux, tray balloon on Windows). `"0s"` disables it; if the wait is shorter than this value, the notice is shown immediately. |
-| `fade_duration` | duration | `"0ms"` | Screen fade-out and fade-in duration around beacon firing to reduce visual distraction. `"0ms"` disables it. Wayland and compositor-less X11 skip with a warning. |
+| `fade_duration` | duration | `"0ms"` | Screen fade-out and fade-in duration around beacon firing to reduce visual distraction. `"0ms"` disables it. Wayland requires a compositor with `wlr-layer-shell` (Sway, Hyprland, KDE Plasma, COSMIC); GNOME and compositor-less X11 skip with a warning. |
 | `key` | string | `"Shift_L"` | Key to simulate when `mode = "key"`. Supports `Shift_L`, `Ctrl`, `Alt`, `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (`Shift_L` is recommended as it produces no character and maps cleanly across standard 101/104-key PC layouts). |
 | `mode` | string | `"mouse"` | Beacon mode: `"mouse"` (nudges cursor +1 px and -1 px) or `"key"` (presses and releases `key` in Horizon). Mouse mode requires the pointer to be inside the Horizon desktop surface. |
 | `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title (and WM_CLASS on X11). Re-evaluated every cycle. |
@@ -202,6 +202,7 @@ By default, `/dev/uinput` requires root permissions. To run RDPBeacon as a stand
 > [!NOTE]
 > - **No Focus Switching on Wayland**: Because Wayland does not permit client applications to inspect or focus windows belonging to other applications, RDPBeacon cannot automatically bring the Omnissa Horizon Client window to the foreground on Wayland. Synthetic events are delivered to the currently active window.
 > - **No Cross-Compositor Idle Detection**: Wayland compositor isolation also prevents querying global user inactivity without compositor-specific protocols. On Wayland, beacons fire unconditionally at the configured interval regardless of local activity.
+> - **Screen Fade Needs layer-shell**: `fade_duration` works only on compositors that implement `wlr-layer-shell` (Sway, Hyprland, KDE Plasma, COSMIC). On GNOME the fade is skipped with a one-time warning and the beacon is still sent.
 
 ---
 
@@ -270,7 +271,8 @@ Follow this checklist to verify your RDPBeacon installation:
    - **Windows**: verify that the overlay fades smoothly to black across all monitors, user clicks pass through during the fade, the beacon fires, the screen fades smoothly back in, and no overlay window is left behind.
    - **X11 with compositor**: verify that the screen fades to black, the beacon fires, the screen fades back in, and no overlay window remains.
    - **X11 without compositor**: verify that the fade is skipped with a warning logged (`No compositing manager running...`) and the beacon is still sent normally.
-   - **Wayland**: verify that the fade is skipped with a warning logged (`screen fade is not supported by this backend; skipping`) and the beacon is still sent normally.
+   - **Wayland with layer-shell**: verify that the screen fades to black on all outputs, the beacon is still delivered to the active window, clicks pass through, the screen fades back in, and no overlay remains.
+   - **Wayland without layer-shell (GNOME)**: verify that the fade is skipped with a warning logged (`Wayland compositor lacks zwlr_layer_shell_v1 or wp_viewporter; skipping screen fade`) and the beacon is still sent normally.
 
 ---
 

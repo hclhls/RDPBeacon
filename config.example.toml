@@ -36,8 +36,9 @@ notify_before = "0s"
 # to reduce visual annoyance. Set to "0ms" to disable.
 # When enabled, all monitors are faded to black before the beacon is sent (including
 # window focus switching) and faded back in immediately after.
-# Note: On Wayland, and on X11 without a running compositing manager, screen fade
-# is not supported and will be skipped with a warning.
+# Note: On Wayland the fade needs a compositor with wlr-layer-shell (Sway, Hyprland,
+# KDE Plasma, COSMIC). On GNOME, and on X11 without a running compositing manager,
+# the fade is skipped with a warning.
 # Default: "0ms" (disabled)
 fade_duration = "0ms"
 
