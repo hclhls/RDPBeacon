@@ -3,9 +3,13 @@ pub mod logging;
 mod runtime;
 pub use runtime::run;
 
+use std::time::Duration;
+
 #[derive(Debug)]
 pub enum ControlEvent {
     SetLogging(bool),
+    SetInterval(Duration),
+    SetNotifyBefore(Duration),
     Quit,
     TrayUnavailable(String),
     LoggingFailed(String),
@@ -25,6 +29,8 @@ pub struct AppState {
     pub worker: WorkerState,
     pub logging_enabled: bool,
     pub logging_error: Option<String>,
+    pub interval: Duration,
+    pub notify_before: Duration,
     quitting: bool,
     finished: bool,
 }
@@ -33,12 +39,17 @@ pub struct AppState {
 pub struct TrayView {
     pub status: String,
     pub logging_enabled: bool,
+    pub interval: Duration,
+    pub notify_before: Duration,
     pub quitting: bool,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let defaults = crate::config::Config::default();
         Self {
+            interval: defaults.interval,
+            notify_before: defaults.notify_before,
             worker: WorkerState::Starting,
             logging_enabled: false,
             logging_error: None,
@@ -62,6 +73,8 @@ impl AppState {
         TrayView {
             status,
             logging_enabled: self.logging_enabled,
+            interval: self.interval,
+            notify_before: self.notify_before,
             quitting: self.quitting,
         }
     }
@@ -99,6 +112,14 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_view_uses_config_defaults() {
+        let defaults = crate::config::Config::default();
+        let view = AppState::default().view();
+        assert_eq!(view.interval, defaults.interval);
+        assert_eq!(view.notify_before, defaults.notify_before);
+    }
 
     #[test]
     fn initial_state_has_logging_disabled() {

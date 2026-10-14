@@ -1,4 +1,7 @@
-use super::{ControlEvent, MenuModel, TrayHost, TrayView, LOGGING_ID, QUIT_ID};
+use super::{
+    ControlEvent, MenuModel, TrayHost, TrayView, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
+    REMINDER_BASE_ID,
+};
 use anyhow::Context;
 use ksni::blocking::TrayMethods;
 use std::sync::{
@@ -32,7 +35,10 @@ impl ksni::Tray for LinuxTray {
         }]
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        use ksni::menu::{CheckmarkItem, StandardItem};
+        use ksni::menu::{CheckmarkItem, RadioGroup, RadioItem, StandardItem, SubMenu};
+        let interval_options = super::interval_options(self.menu.view.interval);
+        let reminder_options = super::reminder_options(self.menu.view.notify_before);
+        let enabled = !self.menu.view.quitting;
         vec![
             StandardItem {
                 label: self.menu.view.status.clone(),
@@ -45,6 +51,52 @@ impl ksni::Tray for LinuxTray {
                 checked: self.menu.view.logging_enabled,
                 enabled: !self.menu.view.quitting,
                 activate: Box::new(|tray: &mut Self| tray.menu.activate(LOGGING_ID)),
+                ..Default::default()
+            }
+            .into(),
+            SubMenu {
+                label: "Beacon interval".into(),
+                enabled,
+                submenu: vec![RadioGroup {
+                    selected: interval_options
+                        .iter()
+                        .position(|d| *d == self.menu.view.interval)
+                        .unwrap_or(0),
+                    select: Box::new(|tray: &mut Self, index| {
+                        tray.menu.activate(INTERVAL_BASE_ID + index as u32)
+                    }),
+                    options: interval_options
+                        .iter()
+                        .map(|d| RadioItem {
+                            label: super::duration_label(*d),
+                            ..Default::default()
+                        })
+                        .collect(),
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into(),
+            SubMenu {
+                label: "Reminder before beacon".into(),
+                enabled,
+                submenu: vec![RadioGroup {
+                    selected: reminder_options
+                        .iter()
+                        .position(|d| *d == self.menu.view.notify_before)
+                        .unwrap_or(0),
+                    select: Box::new(|tray: &mut Self, index| {
+                        tray.menu.activate(REMINDER_BASE_ID + index as u32)
+                    }),
+                    options: reminder_options
+                        .iter()
+                        .map(|d| RadioItem {
+                            label: super::reminder_label(*d),
+                            ..Default::default()
+                        })
+                        .collect(),
+                }
+                .into()],
                 ..Default::default()
             }
             .into(),
@@ -183,8 +235,48 @@ mod tests {
         tray.menu.update(&TrayView {
             status: "Running; logging error: disk full".into(),
             logging_enabled: false,
+            interval: Duration::from_secs(600),
+            notify_before: Duration::ZERO,
             quitting: false,
         });
         assert!(matches!(&tray.menu()[1], ksni::MenuItem::Checkmark(item) if !item.checked));
+    }
+
+    #[test]
+    fn timing_submenus_select_presets_and_mark_current() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut tray = LinuxTray {
+            menu: MenuModel::new(tx),
+        };
+        tray.menu.update(&TrayView {
+            status: "Running".into(),
+            logging_enabled: false,
+            interval: Duration::from_secs(300),
+            notify_before: Duration::from_secs(30),
+            quitting: false,
+        });
+        let menu = tray.menu();
+        let ksni::MenuItem::SubMenu(interval) = &menu[2] else {
+            panic!("Missing interval submenu");
+        };
+        let ksni::MenuItem::RadioGroup(group) = &interval.submenu[0] else {
+            panic!("Missing interval radio group");
+        };
+        assert_eq!(group.selected, 3);
+        (group.select)(&mut tray, 0);
+        assert!(
+            matches!(rx.recv().unwrap(), ControlEvent::SetInterval(d) if d == Duration::from_secs(60))
+        );
+        let ksni::MenuItem::SubMenu(reminder) = &menu[3] else {
+            panic!("Missing reminder submenu");
+        };
+        let ksni::MenuItem::RadioGroup(group) = &reminder.submenu[0] else {
+            panic!("Missing reminder radio group");
+        };
+        assert_eq!(group.selected, 2);
+        (group.select)(&mut tray, 0);
+        assert!(
+            matches!(rx.recv().unwrap(), ControlEvent::SetNotifyBefore(d) if d.is_zero())
+        );
     }
 }

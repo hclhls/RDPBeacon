@@ -3,8 +3,10 @@
 # All durations support human-friendly formats (e.g., "4m", "240s", "3m 30s", "500ms").
 
 # Interval between beacon cycles.
-# Default: "4m" (240 seconds)
-interval = "4m"
+# In tray daemon mode this can be changed from the tray menu while running;
+# menu changes apply from the next wait and are not written back to this file.
+# Default: "10m" (600 seconds)
+interval = "10m"
 
 # Random jitter applied to the interval (+/- jitter).
 # The actual sleep duration is chosen uniformly in [interval - jitter, interval + jitter],
@@ -26,6 +28,7 @@ idle_threshold = "3m"
 # next beacon is shorter than this value, the notification is shown immediately.
 # Linux uses the org.freedesktop.Notifications D-Bus service; Windows uses a
 # tray balloon notification.
+# In tray daemon mode this can also be changed from the tray menu (not persisted).
 # Default: "0s" (disabled)
 notify_before = "0s"
 

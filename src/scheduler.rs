@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rand::Rng;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::backend::Backend;
@@ -129,6 +129,46 @@ fn sleep_with_notice(
     interruptible_sleep(remaining, stop)
 }
 
+/// Timing values that can be changed while the loop is running (e.g. from the tray).
+///
+/// Changes take effect when the next wait starts; a wait already in progress is
+/// not altered.
+pub struct LiveTiming {
+    interval_ms: AtomicU64,
+    notify_before_ms: AtomicU64,
+}
+
+impl LiveTiming {
+    pub fn new(interval: Duration, notify_before: Duration) -> Self {
+        Self {
+            interval_ms: AtomicU64::new(interval.as_millis() as u64),
+            notify_before_ms: AtomicU64::new(notify_before.as_millis() as u64),
+        }
+    }
+
+    pub fn from_config(cfg: &Config) -> Self {
+        Self::new(cfg.interval, cfg.notify_before)
+    }
+
+    pub fn interval(&self) -> Duration {
+        Duration::from_millis(self.interval_ms.load(Ordering::Relaxed))
+    }
+
+    pub fn notify_before(&self) -> Duration {
+        Duration::from_millis(self.notify_before_ms.load(Ordering::Relaxed))
+    }
+
+    pub fn set_interval(&self, interval: Duration) {
+        self.interval_ms
+            .store(interval.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    pub fn set_notify_before(&self, notify_before: Duration) {
+        self.notify_before_ms
+            .store(notify_before.as_millis() as u64, Ordering::Relaxed);
+    }
+}
+
 pub fn run_loop(b: &dyn Backend, cfg: &Config, stop: &AtomicBool) -> Result<()> {
     run_loop_with_notifier(b, cfg, stop, system_notifier().as_ref())
 }
@@ -139,10 +179,26 @@ pub fn run_loop_with_notifier(
     stop: &AtomicBool,
     notifier: &dyn Notifier,
 ) -> Result<()> {
+    run_loop_live(b, cfg, stop, notifier, &LiveTiming::from_config(cfg))
+}
+
+/// Like [`run_loop_with_notifier`], but re-reads `interval` and `notify_before`
+/// from `timing` before every wait.
+pub fn run_loop_live(
+    b: &dyn Backend,
+    cfg: &Config,
+    stop: &AtomicBool,
+    notifier: &dyn Notifier,
+    timing: &LiveTiming,
+) -> Result<()> {
     let mut consecutive_misses: u32 = 0;
     let mut rng = rand::thread_rng();
+    let mut cfg = cfg.clone();
 
     while !stop.load(Ordering::Relaxed) {
+        cfg.interval = timing.interval();
+        cfg.notify_before = timing.notify_before();
+        let cfg = &cfg;
         let sleep_dur = next_sleep(cfg, &mut rng);
         if !sleep_with_notice(sleep_dur, cfg.notify_before, notifier, stop) {
             break;
@@ -707,5 +763,32 @@ mod tests {
             cfg.mode,
             cfg.key.clone()
         )));
+    }
+
+    #[test]
+    fn live_timing_changes_apply_to_next_wait() {
+        let mock = MockBackend::new();
+        let mut cfg = Config::default();
+        cfg.interval = Duration::from_secs(3600);
+        cfg.jitter = Duration::ZERO;
+        cfg.max_misses = 0;
+        let timing = LiveTiming::from_config(&cfg);
+        timing.set_interval(Duration::from_secs(1));
+        timing.set_notify_before(Duration::from_millis(500));
+        assert_eq!(timing.interval(), Duration::from_secs(1));
+        assert_eq!(timing.notify_before(), Duration::from_millis(500));
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(1400));
+                stop.store(true, Ordering::Relaxed);
+            });
+            run_loop_live(&mock, &cfg, &stop, &n, &timing).unwrap();
+        });
+        assert!(!n.0.lock().unwrap().is_empty());
+        assert!(mock
+            .calls()
+            .contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
     }
 }

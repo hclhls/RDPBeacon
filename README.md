@@ -18,7 +18,7 @@ A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **
 - **Cross-Platform**: First-class support for Linux (X11), Linux (Wayland), and Windows.
 - **Zero Caching**: Window lookup is re-evaluated every cycle, gracefully handling client restarts or window title changes.
 - **Graceful Shutdown**: Responsive to `SIGINT` / `Ctrl-C` even during sleep intervals.
-- **Tray Daemon**: `run --daemon` keeps running after the launching terminal closes. Use the local tray to enable file logging or quit on Linux and Windows.
+- **Tray Daemon**: `run --daemon` keeps running after the launching terminal closes. Use the local tray to enable file logging, adjust the beacon interval and reminder time, or quit on Linux and Windows.
 
 ---
 
@@ -114,6 +114,11 @@ The tray menu provides:
   logs; disabling it stops recording while beacons continue. Each launch starts
   with logging disabled. `-v` enables debug verbosity when logging is turned on;
   `RUST_LOG` controls filtering without turning logging on.
+- **Beacon interval**: Radio submenu (`1m`, `2m`, `4m`, `5m`, `10m`, plus the
+  configured value if it is not a preset) that changes `interval` while running.
+- **Reminder before beacon**: Radio submenu (`Off`, `10s`, `30s`, `1m`, plus the
+  configured value if it is not a preset) that changes `notify_before` while
+  running.
 - **Quit**: Stops the worker after any current beacon and focus-restoration
   attempt finish, then removes the tray. Repeated clicks are harmless.
 
@@ -154,7 +159,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `interval` | duration | `"4m"` | Base interval between beacon cycles (e.g., `"4m"`, `"240s"`). |
+| `interval` | duration | `"10m"` | Base interval between beacon cycles (e.g., `"10m"`, `"600s"`). |
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Inactivity threshold before sending a beacon when the Horizon window is currently focused. If you are actively typing inside Horizon, the cycle is skipped. Background sessions are kept alive regardless. |
 | `notify_before` | duration | `"0s"` | Show a desktop notification this long before each beacon (D-Bus on Linux, tray balloon on Windows). `"0s"` disables it; if the wait is shorter than this value, the notice is shown immediately. |
@@ -252,6 +257,7 @@ Follow this checklist to verify your RDPBeacon installation:
      ```
    - Verify that a desktop notification ("Beacon will be sent in 10s") appears about 10 seconds before each beacon (D-Bus notification on Linux, tray balloon on Windows).
    - Set `notify_before = "0s"` and verify that no notification appears.
+   - Tray daemon: change **Beacon interval** and **Reminder before beacon** from the tray menu and verify the checkmark moves and the next wait uses the new value (the wait already in progress is unchanged). Menu changes are not written to the config file.
    - Windows: restart Explorer and verify the icon returns and the menu remains usable.
    - Record the desktops actually tested. Wine tests or cross-compilation do not replace Windows desktop or Wayland input-delivery checks.
 

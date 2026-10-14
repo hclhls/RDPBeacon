@@ -9,6 +9,21 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Tray menu controls for **Beacon interval** (`1m`, `2m`, `4m`, `5m`, `10m`) and
+  **Reminder before beacon** (`Off`, `10s`, `30s`, `1m`) on Linux and Windows.
+  Changes apply from the next wait and are not written to the config file. A
+  configured value that is not a preset is added to the menu.
+
+### Changed
+
+- The default `interval` is now `"10m"` (previously `"4m"`).
+
+### Known limitations
+
+- The Windows tray submenus have not been verified on a real desktop yet.
+
 ## [0.4] - 2026-10-14
 
 ### Added

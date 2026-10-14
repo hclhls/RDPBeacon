@@ -69,10 +69,14 @@ where
     let logging = logging_factory(events.clone())?;
     let mut tray = tray_factory(events.clone())?;
     let mut state = AppState::default();
+    state.interval = cfg.interval;
+    state.notify_before = cfg.notify_before;
     tray.update(&state.view())?;
     let stop = Arc::new(AtomicBool::new(false));
     let (start_tx, start_rx) = mpsc::channel();
     let worker_stop = stop.clone();
+    let timing = Arc::new(crate::scheduler::LiveTiming::from_config(&cfg));
+    let worker_timing = timing.clone();
     let thread = std::thread::Builder::new()
         .name("rdpbeacon-worker".into())
         .spawn(move || {
@@ -83,7 +87,13 @@ where
                     if start_rx.recv().is_err() {
                         return Ok(());
                     }
-                    crate::scheduler::run_loop(backend.as_ref(), &cfg, &worker_stop)
+                    crate::scheduler::run_loop_live(
+                        backend.as_ref(),
+                        &cfg,
+                        &worker_stop,
+                        crate::notify::system_notifier().as_ref(),
+                        &worker_timing,
+                    )
                 }))
                 .unwrap_or_else(|panic| {
                     let reason = panic
@@ -160,6 +170,18 @@ where
                                 logging.record_status(&format!("Stopped: {reason}"));
                             }
                         }
+                    }
+                }
+                ControlEvent::SetInterval(interval) => {
+                    if !state.quitting && !interval.is_zero() {
+                        timing.set_interval(interval);
+                        state.interval = interval;
+                    }
+                }
+                ControlEvent::SetNotifyBefore(notify_before) => {
+                    if !state.quitting {
+                        timing.set_notify_before(notify_before);
+                        state.notify_before = notify_before;
                     }
                 }
                 ControlEvent::LoggingFailed(reason) => {

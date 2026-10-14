@@ -1,5 +1,8 @@
 use super::callback::CallbackState;
-use super::{ControlEvent, MenuModel, TrayHost, TrayView, LOGGING_ID, QUIT_ID};
+use super::{
+    ControlEvent, MenuModel, TrayHost, TrayView, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
+    REMINDER_BASE_ID,
+};
 use anyhow::Context;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
@@ -110,6 +113,51 @@ unsafe extern "system" fn window_proc(
     DefWindowProcW(hwnd, message, wparam, lparam)
 }
 
+fn wide(text: &str) -> Vec<u16> {
+    text.replace('&', "&&")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect()
+}
+
+/// Appends a popup submenu whose items use ids `base_id + index`. The submenu is
+/// owned by `menu` and destroyed with it.
+unsafe fn append_radio_submenu(
+    menu: HMENU,
+    title: &str,
+    base_id: u32,
+    items: impl Iterator<Item = (String, bool)>,
+    enabled: bool,
+) -> anyhow::Result<()> {
+    let submenu = CreatePopupMenu()?;
+    let result = (|| {
+        for (index, (label, checked)) in items.enumerate() {
+            let mut flags = MF_STRING;
+            if checked {
+                flags |= MF_CHECKED;
+            }
+            let label = wide(&label);
+            AppendMenuW(
+                submenu,
+                flags,
+                (base_id + index as u32) as usize,
+                PCWSTR(label.as_ptr()),
+            )?;
+        }
+        let mut flags = MF_POPUP;
+        if !enabled {
+            flags |= MF_DISABLED;
+        }
+        let title = wide(title);
+        AppendMenuW(menu, flags, submenu.0 as usize, PCWSTR(title.as_ptr()))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = DestroyMenu(submenu);
+    }
+    result
+}
+
 unsafe fn show_menu(hwnd: HWND, view: &TrayView) -> anyhow::Result<u32> {
     let menu = CreatePopupMenu()?;
     let result = (|| {
@@ -128,6 +176,26 @@ unsafe fn show_menu(hwnd: HWND, view: &TrayView) -> anyhow::Result<u32> {
             flags |= MF_DISABLED;
         }
         AppendMenuW(menu, flags, LOGGING_ID as usize, w!("Enable logging"))?;
+        let interval_options = super::interval_options(view.interval);
+        append_radio_submenu(
+            menu,
+            "Beacon interval",
+            INTERVAL_BASE_ID,
+            interval_options
+                .iter()
+                .map(|d| (super::duration_label(*d), *d == view.interval)),
+            !view.quitting,
+        )?;
+        let reminder_options = super::reminder_options(view.notify_before);
+        append_radio_submenu(
+            menu,
+            "Reminder before beacon",
+            REMINDER_BASE_ID,
+            reminder_options
+                .iter()
+                .map(|d| (super::reminder_label(*d), *d == view.notify_before)),
+            !view.quitting,
+        )?;
         AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
         AppendMenuW(menu, MF_STRING, QUIT_ID as usize, w!("Quit"))?;
         let mut point = POINT::default();
