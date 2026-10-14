@@ -9,6 +9,16 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6] - 2026-10-14
+
+### Added
+
+- Optional screen fade-out and fade-in effect around beacon cycles (`fade_duration`, default `"0ms"` / disabled).
+  - All monitors are faded to black before the beacon sequence (including window focus switching) and faded back in immediately after, reducing visual annoyance.
+  - Windows: transparent layered full-screen overlay covering all monitors with input pass-through.
+  - X11: override-redirect root overlay with opacity animation via `_NET_WM_WINDOW_OPACITY` and empty input shape for click pass-through.
+  - Wayland and compositor-less X11 environments automatically skip the effect with a single warning.
+
 ## [0.5] - 2026-10-14
 
 ### Added
@@ -97,7 +107,9 @@ Initial public release.
 - TOML configuration (`config.example.toml`), Apache-2.0 license, and CI for
   Linux and Windows.
 
-[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.4...HEAD
+[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6...HEAD
+[0.6]: https://github.com/hclhls/RDPBeacon/compare/v0.5...v0.6
+[0.5]: https://github.com/hclhls/RDPBeacon/compare/v0.4...v0.5
 [0.4]: https://github.com/hclhls/RDPBeacon/compare/v0.3...v0.4
 [0.3]: https://github.com/hclhls/RDPBeacon/compare/v0.2...v0.3
 [0.2]: https://github.com/hclhls/RDPBeacon/compare/v0.1...v0.2
