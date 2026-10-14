@@ -21,6 +21,14 @@ jitter = "20s"
 # Default: "3m" (180 seconds)
 idle_threshold = "3m"
 
+# Show a desktop notification this long before each beacon is sent, so you are
+# not surprised by simulated input. Set to "0s" to disable. If the wait until the
+# next beacon is shorter than this value, the notification is shown immediately.
+# Linux uses the org.freedesktop.Notifications D-Bus service; Windows uses a
+# tray balloon notification.
+# Default: "0s" (disabled)
+notify_before = "0s"
+
 # Keystroke to simulate when `mode = "key"`.
 # Supported values include Shift_L, Ctrl, Alt, standard function keys (F1-F24),
 # Space, Enter, Esc, Tab, Backspace, arrow keys. Shift_L is strongly recommended

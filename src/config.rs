@@ -32,6 +32,8 @@ pub struct Config {
     pub jitter: Duration,
     #[serde(with = "humantime_serde")]
     pub idle_threshold: Duration,
+    #[serde(with = "humantime_serde")]
+    pub notify_before: Duration,
     pub key: String,
     pub mode: Mode,
     pub window_match: String,
@@ -45,6 +47,7 @@ impl Default for Config {
             interval: Duration::from_secs(240),
             jitter: Duration::from_secs(20),
             idle_threshold: Duration::from_secs(180),
+            notify_before: Duration::ZERO,
             key: "Shift_L".to_string(),
             mode: Mode::Mouse,
             window_match: "Omnissa Horizon Client".to_string(),
@@ -81,6 +84,7 @@ mod tests {
         assert_eq!(cfg.interval, Duration::from_secs(240));
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
+        assert_eq!(cfg.notify_before, Duration::ZERO);
         assert_eq!(cfg.key, "Shift_L");
         assert_eq!(cfg.mode, Mode::Mouse);
         assert_eq!(cfg.window_match, "Omnissa Horizon Client");
@@ -94,6 +98,7 @@ mod tests {
             interval = "5m"
             mode = "key"
             max_misses = 10
+            notify_before = "30s"
         "#;
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
@@ -107,6 +112,7 @@ mod tests {
         assert_eq!(cfg.interval, Duration::from_secs(300));
         assert_eq!(cfg.mode, Mode::Key);
         assert_eq!(cfg.max_misses, 10);
+        assert_eq!(cfg.notify_before, Duration::from_secs(30));
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
         assert_eq!(cfg.key, "Shift_L");

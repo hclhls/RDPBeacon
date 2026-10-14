@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::backend::Backend;
 use crate::config::Config;
+use crate::notify::{system_notifier, Notifier};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CycleOutcome {
@@ -103,13 +104,47 @@ fn interruptible_sleep(duration: Duration, stop: &AtomicBool) -> bool {
     !stop.load(Ordering::Relaxed)
 }
 
+/// Sleeps for `total`, calling `notifier` once `notify_before` before the end.
+///
+/// Returns `false` if interrupted by `stop`. A zero `notify_before` disables the
+/// notification; if `total` is not longer than `notify_before` it fires immediately.
+fn sleep_with_notice(
+    total: Duration,
+    notify_before: Duration,
+    notifier: &dyn Notifier,
+    stop: &AtomicBool,
+) -> bool {
+    if notify_before.is_zero() {
+        return interruptible_sleep(total, stop);
+    }
+    let lead = total.saturating_sub(notify_before);
+    if !interruptible_sleep(lead, stop) {
+        return false;
+    }
+    let remaining = total - lead;
+    notifier.notify(
+        "RDPBeacon",
+        &format!("Beacon will be sent in {}s", remaining.as_secs()),
+    );
+    interruptible_sleep(remaining, stop)
+}
+
 pub fn run_loop(b: &dyn Backend, cfg: &Config, stop: &AtomicBool) -> Result<()> {
+    run_loop_with_notifier(b, cfg, stop, system_notifier().as_ref())
+}
+
+pub fn run_loop_with_notifier(
+    b: &dyn Backend,
+    cfg: &Config,
+    stop: &AtomicBool,
+    notifier: &dyn Notifier,
+) -> Result<()> {
     let mut consecutive_misses: u32 = 0;
     let mut rng = rand::thread_rng();
 
     while !stop.load(Ordering::Relaxed) {
         let sleep_dur = next_sleep(cfg, &mut rng);
-        if !interruptible_sleep(sleep_dur, stop) {
+        if !sleep_with_notice(sleep_dur, cfg.notify_before, notifier, stop) {
             break;
         }
         if stop.load(Ordering::Relaxed) {
@@ -581,5 +616,96 @@ mod tests {
             !mock_arc.calls().is_empty(),
             "loop should have executed a cycle despite errors"
         );
+    }
+
+    struct RecordingNotifier(Mutex<Vec<(String, String)>>);
+
+    impl Notifier for RecordingNotifier {
+        fn notify(&self, summary: &str, body: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((summary.to_string(), body.to_string()));
+        }
+    }
+
+    #[test]
+    fn notifies_once_before_end_of_sleep() {
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(false);
+        let start = std::time::Instant::now();
+        let ok = sleep_with_notice(
+            Duration::from_millis(300),
+            Duration::from_millis(100),
+            &n,
+            &stop,
+        );
+        assert!(ok);
+        assert!(start.elapsed() >= Duration::from_millis(300));
+        assert_eq!(n.0.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn no_notification_when_notify_before_is_zero() {
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(false);
+        assert!(sleep_with_notice(
+            Duration::from_millis(50),
+            Duration::ZERO,
+            &n,
+            &stop
+        ));
+        assert!(n.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn notifies_immediately_when_sleep_shorter_than_lead() {
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(false);
+        assert!(sleep_with_notice(
+            Duration::from_millis(50),
+            Duration::from_secs(30),
+            &n,
+            &stop
+        ));
+        assert_eq!(n.0.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn no_notification_when_stopped_during_lead() {
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(true);
+        assert!(!sleep_with_notice(
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+            &n,
+            &stop
+        ));
+        assert!(n.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn run_loop_notifies_before_cycle() {
+        let mut mock = MockBackend::new();
+        mock.idle_time = Duration::from_secs(300);
+        let mut cfg = Config::default();
+        cfg.interval = Duration::from_secs(1);
+        cfg.jitter = Duration::ZERO;
+        cfg.notify_before = Duration::from_millis(500);
+        cfg.max_misses = 0;
+        let n = RecordingNotifier(Mutex::new(Vec::new()));
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(1300));
+                stop.store(true, Ordering::Relaxed);
+            });
+            run_loop_with_notifier(&mock, &cfg, &stop, &n).unwrap();
+        });
+        assert!(!n.0.lock().unwrap().is_empty());
+        assert!(mock.calls().contains(&MockCall::SendBeacon(
+            cfg.mode,
+            cfg.key.clone()
+        )));
     }
 }

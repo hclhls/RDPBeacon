@@ -1,6 +1,7 @@
 mod backend;
 mod config;
 mod daemon;
+mod notify;
 mod scheduler;
 mod tray;
 

@@ -157,6 +157,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | `interval` | duration | `"4m"` | Base interval between beacon cycles (e.g., `"4m"`, `"240s"`). |
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Inactivity threshold before sending a beacon when the Horizon window is currently focused. If you are actively typing inside Horizon, the cycle is skipped. Background sessions are kept alive regardless. |
+| `notify_before` | duration | `"0s"` | Show a desktop notification this long before each beacon (D-Bus on Linux, tray balloon on Windows). `"0s"` disables it; if the wait is shorter than this value, the notice is shown immediately. |
 | `key` | string | `"Shift_L"` | Key to simulate when `mode = "key"`. Supports `Shift_L`, `Ctrl`, `Alt`, `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (`Shift_L` is recommended as it produces no character and maps cleanly across standard 101/104-key PC layouts). |
 | `mode` | string | `"mouse"` | Beacon mode: `"mouse"` (nudges cursor +1 px and -1 px) or `"key"` (presses and releases `key` in Horizon). Mouse mode requires the pointer to be inside the Horizon desktop surface. |
 | `window_match` | string | `"Omnissa Horizon Client"` | Case-insensitive substring matched against window title (and WM_CLASS on X11). Re-evaluated every cycle. |
@@ -243,6 +244,14 @@ Follow this checklist to verify your RDPBeacon installation:
    - Choose Quit during a sleep and during a beacon; verify process exit and focus restoration.
    - With a short interval and `max_misses = 1`, close Horizon and verify the tray reports Stopped; enable logging to capture the reason, then quit.
    - Linux: test with a compatible tray host on X11 and Wayland. An isolated D-Bus session without a tray host must fail startup. Host loss must stop the daemon.
+
+6. **Test Pre-Beacon Notification (`notify_before`)**:
+   - Run with a short interval and a lead time:
+     ```bash
+     rdpbeacon --config <(printf 'interval = "20s"\njitter = "0s"\nnotify_before = "10s"\n') run
+     ```
+   - Verify that a desktop notification ("Beacon will be sent in 10s") appears about 10 seconds before each beacon (D-Bus notification on Linux, tray balloon on Windows).
+   - Set `notify_before = "0s"` and verify that no notification appears.
    - Windows: restart Explorer and verify the icon returns and the menu remains usable.
    - Record the desktops actually tested. Wine tests or cross-compilation do not replace Windows desktop or Wayland input-delivery checks.
 
