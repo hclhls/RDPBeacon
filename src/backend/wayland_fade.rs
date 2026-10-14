@@ -289,9 +289,9 @@ impl Dispatch<WlBuffer, ()> for State {
 }
 
 delegate_noop!(State: WlCompositor);
-delegate_noop!(State: WlShm);
+delegate_noop!(State: ignore WlShm);
 delegate_noop!(State: WlShmPool);
-delegate_noop!(State: WlSurface);
+delegate_noop!(State: ignore WlSurface);
 delegate_noop!(State: WlRegion);
 delegate_noop!(State: ignore WlOutput);
 delegate_noop!(State: WpViewporter);
