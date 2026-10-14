@@ -44,7 +44,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            interval: Duration::from_secs(240),
+            interval: Duration::from_secs(600),
             jitter: Duration::from_secs(20),
             idle_threshold: Duration::from_secs(180),
             notify_before: Duration::ZERO,
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn defaults_when_no_file() {
         let cfg = Config::load(None).expect("loading without file should succeed");
-        assert_eq!(cfg.interval, Duration::from_secs(240));
+        assert_eq!(cfg.interval, Duration::from_secs(600));
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
         assert_eq!(cfg.notify_before, Duration::ZERO);
