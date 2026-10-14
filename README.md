@@ -262,6 +262,16 @@ Follow this checklist to verify your RDPBeacon installation:
    - Windows: restart Explorer and verify the icon returns and the menu remains usable.
    - Record the desktops actually tested. Wine tests or cross-compilation do not replace Windows desktop or Wayland input-delivery checks.
 
+7. **Test Screen Fade (`fade_duration`)**:
+   - Run with fade enabled:
+     ```bash
+     rdpbeacon --config <(printf 'fade_duration = "300ms"\n') -v once
+     ```
+   - **Windows**: verify that the overlay fades smoothly to black across all monitors, user clicks pass through during the fade, the beacon fires, the screen fades smoothly back in, and no overlay window is left behind.
+   - **X11 with compositor**: verify that the screen fades to black, the beacon fires, the screen fades back in, and no overlay window remains.
+   - **X11 without compositor**: verify that the fade is skipped with a warning logged (`No compositing manager running...`) and the beacon is still sent normally.
+   - **Wayland**: verify that the fade is skipped with a warning logged (`screen fade is not supported by this backend; skipping`) and the beacon is still sent normally.
+
 ---
 
 ## Contributing
