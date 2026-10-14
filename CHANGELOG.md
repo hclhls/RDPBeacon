@@ -9,6 +9,8 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.5] - 2026-10-14
+
 ### Added
 
 - Tray menu controls for **Beacon interval** (`1m`, `2m`, `4m`, `5m`, `10m`) and
