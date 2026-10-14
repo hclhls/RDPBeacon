@@ -1,17 +1,21 @@
 #[cfg(windows)]
 use anyhow::{Context, Result};
 #[cfg(windows)]
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex, Once};
 #[cfg(windows)]
 use std::time::Duration;
 #[cfg(windows)]
 use windows::core::w;
 #[cfg(windows)]
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, BOOL, HWND, LPARAM};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, BOOL, HWND, LPARAM, LRESULT, WPARAM};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
 #[cfg(windows)]
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+#[cfg(windows)]
+use windows::Win32::UI::HiDpi::{
+    SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
 #[cfg(windows)]
 use windows::Win32::System::SystemInformation::GetTickCount64;
 #[cfg(windows)]
@@ -24,10 +28,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows, GetClassNameW,
-    GetForegroundWindow, GetSystemMetrics, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, RegisterClassW, SetForegroundWindow, SetLayeredWindowAttributes,
-    ShowWindow, LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, GetClassNameW,
+    GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
+    SetLayeredWindowAttributes, ShowWindow, TranslateMessage, LWA_ALPHA, MSG, WM_APP, WM_CLOSE,
+    WM_DESTROY, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
     SM_YVIRTUALSCREEN, SW_SHOWNOACTIVATE, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
@@ -98,7 +103,171 @@ pub fn parse_virtual_key(key: &str) -> Option<u16> {
 
 #[cfg(windows)]
 pub struct WindowsBackend {
-    overlay: Mutex<Option<isize>>,
+    overlay: Mutex<Option<Overlay>>,
+}
+
+/// Private message used to change the overlay alpha on the thread that owns the window.
+#[cfg(windows)]
+const WM_FADE_ALPHA: u32 = WM_APP + 1;
+
+#[cfg(windows)]
+static REGISTER_OVERLAY_CLASS: Once = Once::new();
+
+#[cfg(windows)]
+unsafe extern "system" fn overlay_wndproc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_FADE_ALPHA => {
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), wparam.0 as u8, LWA_ALPHA);
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// A full-screen black overlay owned by a dedicated thread with its own message pump.
+///
+/// Win32 windows can only be destroyed by the thread that created them. Keeping the window on
+/// a dedicated pump thread lets any thread (including `Drop` on a different thread) close it
+/// safely by posting `WM_CLOSE`, so a dark overlay can never be leaked.
+#[cfg(windows)]
+struct Overlay {
+    hwnd: isize,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl Overlay {
+    fn create() -> Result<Self> {
+        let (tx, rx) = mpsc::channel::<Result<isize>>();
+        let thread = std::thread::spawn(move || {
+            let hwnd = match unsafe { Self::create_window() } {
+                Ok(hwnd) => hwnd,
+                Err(e) => {
+                    let _ = tx.send(Err(e));
+                    return;
+                }
+            };
+            if tx.send(Ok(hwnd.0 as isize)).is_err() {
+                unsafe {
+                    let _ = DestroyWindow(hwnd);
+                }
+                return;
+            }
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, HWND::default(), 0, 0).0 > 0 {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+        });
+
+        match rx.recv() {
+            Ok(Ok(hwnd)) => Ok(Self {
+                hwnd,
+                thread: Some(thread),
+            }),
+            Ok(Err(e)) => {
+                let _ = thread.join();
+                Err(e)
+            }
+            Err(_) => {
+                let _ = thread.join();
+                anyhow::bail!("Fade overlay thread exited unexpectedly")
+            }
+        }
+    }
+
+    unsafe fn create_window() -> Result<HWND> {
+        // Without DPI awareness the virtual screen metrics are scaled and the overlay may not
+        // cover every monitor.
+        let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+        let instance = HINSTANCE(GetModuleHandleW(None)?.0);
+        let class_name = w!("RDPBeaconFadeOverlay");
+        REGISTER_OVERLAY_CLASS.call_once(|| {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(overlay_wndproc),
+                hInstance: instance,
+                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                lpszClassName: class_name,
+                ..Default::default()
+            };
+            if RegisterClassW(&wc) == 0 {
+                log::warn!("Failed to register fade overlay window class");
+            }
+        });
+
+        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let cx = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let cy = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+        let ex_style =
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+
+        let hwnd = CreateWindowExW(
+            ex_style,
+            class_name,
+            w!(""),
+            WS_POPUP,
+            x,
+            y,
+            cx,
+            cy,
+            HWND::default(),
+            None,
+            instance,
+            None,
+        )?;
+
+        // Start fully transparent.
+        if let Err(e) = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA) {
+            let _ = DestroyWindow(hwnd);
+            return Err(e.into());
+        }
+
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        Ok(hwnd)
+    }
+
+    fn set_alpha(&self, alpha: u8) -> Result<()> {
+        unsafe {
+            PostMessageW(
+                HWND(self.hwnd as *mut _),
+                WM_FADE_ALPHA,
+                WPARAM(alpha as usize),
+                LPARAM(0),
+            )
+        }
+        .context("Failed to update fade overlay alpha")
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        // Posting is safe from any thread; the owner thread destroys the window and exits.
+        unsafe {
+            let _ = PostMessageW(HWND(self.hwnd as *mut _), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -345,122 +514,62 @@ impl Backend for WindowsBackend {
             return Ok(());
         }
 
-        // Clean up any stale overlay first
-        if let Some(old) = self.overlay.lock().unwrap().take() {
-            unsafe {
-                let _ = DestroyWindow(HWND(old as *mut _));
+        // Dropping a stale overlay asks its owner thread to close it and joins that thread.
+        drop(self.overlay.lock().unwrap().take());
+
+        let overlay = Overlay::create().context("Failed to create fade overlay")?;
+        // Publish the overlay immediately so Drop or fade_in can clean it up.
+        *self.overlay.lock().unwrap() = Some(overlay);
+
+        let start = std::time::Instant::now();
+        loop {
+            let elapsed = start.elapsed();
+            let alpha = fade_alpha(elapsed, duration);
+            if let Err(e) = self.set_overlay_alpha(alpha) {
+                // Dropping the overlay closes it so the screen is never left dark.
+                drop(self.overlay.lock().unwrap().take());
+                return Err(e);
             }
-        }
-
-        unsafe {
-            let instance = HINSTANCE(GetModuleHandleW(None)?.0);
-            let class_name = w!("RDPBeaconFadeOverlay");
-            let wc = WNDCLASSW {
-                lpfnWndProc: Some(DefWindowProcW),
-                hInstance: instance,
-                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
-                lpszClassName: class_name,
-                ..Default::default()
-            };
-            let _ = RegisterClassW(&wc);
-
-            let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-            let cx = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            let cy = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-            let ex_style = WS_EX_LAYERED
-                | WS_EX_TOPMOST
-                | WS_EX_TRANSPARENT
-                | WS_EX_TOOLWINDOW
-                | WS_EX_NOACTIVATE;
-
-            let hwnd = CreateWindowExW(
-                ex_style,
-                class_name,
-                w!(""),
-                WS_POPUP,
-                x,
-                y,
-                cx,
-                cy,
-                HWND::default(),
-                None,
-                instance,
-                None,
-            )?;
-
-            // Set initial alpha to 0
-            if let Err(e) = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA) {
-                let _ = DestroyWindow(hwnd);
-                return Err(e.into());
+            if elapsed >= duration {
+                break;
             }
-
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-
-            *self.overlay.lock().unwrap() = Some(hwnd.0 as isize);
-
-            let start = std::time::Instant::now();
-            loop {
-                let elapsed = start.elapsed();
-                let alpha = fade_alpha(elapsed, duration);
-                if let Err(e) = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA) {
-                    let _ = DestroyWindow(hwnd);
-                    *self.overlay.lock().unwrap() = None;
-                    return Err(e.into());
-                }
-                if elapsed >= duration {
-                    break;
-                }
-                std::thread::sleep(FADE_STEP);
-            }
+            std::thread::sleep(FADE_STEP);
         }
 
         Ok(())
     }
 
     fn fade_in(&self, duration: Duration) -> Result<()> {
-        let hwnd_raw = match self.overlay.lock().unwrap().take() {
-            Some(h) => h,
-            None => return Ok(()),
-        };
-        let hwnd = HWND(hwnd_raw as *mut _);
-
-        if duration.is_zero() {
-            unsafe {
-                let _ = DestroyWindow(hwnd);
-            }
+        if self.overlay.lock().unwrap().is_none() {
             return Ok(());
         }
 
-        unsafe {
+        if !duration.is_zero() {
             let start = std::time::Instant::now();
             loop {
                 let elapsed = start.elapsed();
                 let alpha = 255 - fade_alpha(elapsed, duration);
-                let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
+                if self.set_overlay_alpha(alpha).is_err() {
+                    break;
+                }
                 if elapsed >= duration {
                     break;
                 }
                 std::thread::sleep(FADE_STEP);
             }
-
-            let _ = DestroyWindow(hwnd);
         }
 
+        drop(self.overlay.lock().unwrap().take());
         Ok(())
     }
 }
 
 #[cfg(windows)]
-impl Drop for WindowsBackend {
-    fn drop(&mut self) {
-        if let Ok(mut lock) = self.overlay.lock() {
-            if let Some(h) = lock.take() {
-                unsafe {
-                    let _ = DestroyWindow(HWND(h as *mut _));
-                }
-            }
+impl WindowsBackend {
+    fn set_overlay_alpha(&self, alpha: u8) -> Result<()> {
+        match self.overlay.lock().unwrap().as_ref() {
+            Some(overlay) => overlay.set_alpha(alpha),
+            None => Ok(()),
         }
     }
 }
