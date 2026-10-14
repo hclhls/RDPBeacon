@@ -9,6 +9,17 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-14
+
+### Fixed
+
+- Scheduler: restore screen via RAII `FadeGuard` on error or unwinding panic so the screen is never left dark.
+- Windows: isolate overlay HWND lifecycle and message pump onto a dedicated owner thread to ensure thread-safe window destruction and reliable message dispatch across threads.
+- Windows: enable per-monitor DPI awareness (`DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`) so the overlay covers all monitors accurately across mixed DPI configurations.
+- Windows: release overlay mutex before joining the overlay thread during teardown.
+- X11: query dynamic root window geometry on each fade cycle to support hotplugged monitors and resolution changes.
+- X11: validate `map_window` synchronously to catch and handle X server errors immediately.
+
 ## [0.6] - 2026-10-14
 
 ### Added
@@ -107,7 +118,8 @@ Initial public release.
 - TOML configuration (`config.example.toml`), Apache-2.0 license, and CI for
   Linux and Windows.
 
-[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6...HEAD
+[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/hclhls/RDPBeacon/compare/v0.6...v0.6.1
 [0.6]: https://github.com/hclhls/RDPBeacon/compare/v0.5...v0.6
 [0.5]: https://github.com/hclhls/RDPBeacon/compare/v0.4...v0.5
 [0.4]: https://github.com/hclhls/RDPBeacon/compare/v0.3...v0.4
