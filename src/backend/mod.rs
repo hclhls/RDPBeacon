@@ -9,6 +9,7 @@ pub mod wayland;
 pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod x11;
+pub mod fade;
 
 pub type WindowId = u64;
 
@@ -114,6 +115,18 @@ pub trait Backend {
     fn focus(&self, w: WindowId) -> Result<()>;
     fn send_beacon(&self, mode: Mode, key: &str) -> Result<()>;
     fn supports_focus(&self) -> bool;
+
+    #[allow(dead_code)]
+    fn fade_out(&self, _duration: Duration) -> Result<()> {
+        log::warn!("screen fade is not supported by this backend; skipping");
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn fade_in(&self, _duration: Duration) -> Result<()> {
+        log::warn!("screen fade is not supported by this backend; skipping");
+        Ok(())
+    }
 }
 
 pub fn detect_backend_kind(
