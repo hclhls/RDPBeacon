@@ -21,8 +21,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Extract release notes from CHANGELOG.md
         run: scripts/extract-changelog.sh "${TAG#v}" CHANGELOG.md > release-notes.md
