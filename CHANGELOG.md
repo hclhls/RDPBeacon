@@ -1,0 +1,87 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Each version heading matches its git tag without the leading `v`
+(for example, `## [0.4]` is released as tag `v0.4`). The release workflow
+publishes the matching section as the GitHub Release notes.
+
+## [Unreleased]
+
+## [0.4] - 2026-10-14
+
+### Added
+
+- Pre-beacon desktop notification. Set `notify_before` (for example `"30s"`) to
+  be warned that a beacon is about to be sent. It is disabled by default
+  (`"0s"`). If the wait is shorter than this value, the notice appears
+  immediately.
+  - Linux: sent through the `org.freedesktop.Notifications` D-Bus service.
+  - Windows: shown as a tray balloon notification.
+
+### Known limitations
+
+- The Windows notification path has not been verified on a real desktop yet.
+
+## [0.3] - 2026-10-13
+
+### Added
+
+- Tray daemon mode: `rdpbeacon run --daemon` detaches from the terminal and
+  keeps a tray icon with controls (including Quit).
+- Linux tray via StatusNotifierItem and Windows tray via the notification area.
+- Optional rotating log file for daemon mode, toggled from the tray menu.
+- Startup acknowledgement for the detached process, so launch failures are
+  reported instead of being lost.
+- Validation notes in `docs/tray-daemon-validation.md`.
+
+### Fixed
+
+- Hardened tray ownership and concurrent logging in daemon mode.
+
+### Upgrade notes
+
+- Linux daemon mode requires a tray host. Startup fails if none is available.
+
+## [0.2] - 2026-10-08
+
+### Changed
+
+- Beacons now use mouse mode by default (`mode = "mouse"`).
+- The default key for key mode is now `Shift_L` (previously `F15`).
+- When you are active in another local window, the Horizon session is still
+  kept alive in the background. Cycles are skipped only while you are active
+  inside the Horizon window itself.
+
+### Fixed
+
+- More reliable key beacons: added focus settle and dwell delays and send dual
+  pulses.
+
+### Upgrade notes
+
+- To keep the previous behavior, set `mode = "key"` and `key = "F15"` explicitly.
+
+## [0.1] - 2026-10-07
+
+Initial public release.
+
+### Added
+
+- Beacon scheduler with a configurable `interval` and random `jitter`, plus
+  idle-time checks (`idle_threshold`) and a `max_misses` shutdown guard.
+- Platform backends: X11 (XTest), Wayland (`/dev/uinput`), and Windows.
+- Horizon window detection by title or class (`window_match`), preferring the
+  remote session window over launcher windows.
+- Focus restoration: the previously active window regains focus after a beacon
+  (X11 and Windows).
+- CLI subcommands `check`, `once`, and `run`, with `-v` / `--verbose` debug logging.
+- TOML configuration (`config.example.toml`), Apache-2.0 license, and CI for
+  Linux and Windows.
+
+[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.4...HEAD
+[0.4]: https://github.com/hclhls/RDPBeacon/compare/v0.3...v0.4
+[0.3]: https://github.com/hclhls/RDPBeacon/compare/v0.2...v0.3
+[0.2]: https://github.com/hclhls/RDPBeacon/compare/v0.1...v0.2
+[0.1]: https://github.com/hclhls/RDPBeacon/releases/tag/v0.1

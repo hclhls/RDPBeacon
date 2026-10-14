@@ -87,3 +87,9 @@ RDPBeacon is organized into decoupled modules:
    - `test: add unit tests for ...`
    - `refactor: clean up ...`
 5. **Open a Pull Request** against the `main` branch with a clear description of your change and testing steps.
+
+---
+
+## Releasing
+
+Before tagging a release, move the `## [Unreleased]` entries in [`CHANGELOG.md`](CHANGELOG.md) into a new `## [X.Y] - YYYY-MM-DD` section that matches the tag name without the leading `v`. Pushing the `vX.Y` tag then publishes that section as the GitHub Release notes through `.github/workflows/release.yml`.
