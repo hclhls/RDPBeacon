@@ -79,8 +79,8 @@ Rules:
 
 ## Error Handling
 
-- Overlay creation failure: log a warning, return `Ok(())`, continue without
-  fading.
+- Overlay creation failure: the backend returns `Err`; the scheduler logs a
+  warning and continues without fading (the beacon is still sent).
 - Failure during `fade_out`: destroy the overlay so `fade_in` becomes a no-op.
 
 ## Testing

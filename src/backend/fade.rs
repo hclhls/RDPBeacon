@@ -1,13 +1,11 @@
 use std::time::Duration;
 
-#[allow(dead_code)]
 pub const FADE_STEP: Duration = Duration::from_millis(16);
 
 /// Calculates the screen opacity alpha (0 = fully transparent, 255 = fully opaque)
 /// given elapsed time and total duration.
 /// If `duration` is zero, immediately returns 255 (fully opaque).
 /// If `elapsed >= duration`, returns 255.
-#[allow(dead_code)]
 pub fn fade_alpha(elapsed: Duration, duration: Duration) -> u8 {
     if duration.is_zero() || elapsed >= duration {
         return 255;

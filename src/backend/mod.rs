@@ -3,13 +3,13 @@ use std::time::Duration;
 
 use crate::config::{BackendKind, Mode};
 
+pub mod fade;
 #[cfg(target_os = "linux")]
 pub mod wayland;
 #[cfg(any(windows, test))]
 pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod x11;
-pub mod fade;
 
 pub type WindowId = u64;
 
@@ -116,22 +116,26 @@ pub trait Backend {
     fn send_beacon(&self, mode: Mode, key: &str) -> Result<()>;
     fn supports_focus(&self) -> bool;
 
-    #[allow(dead_code)]
     fn fade_out(&self, _duration: Duration) -> Result<()> {
-        if !FADE_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            log::warn!("screen fade is not supported by this backend; skipping");
-        }
+        warn_fade_unsupported_once(&FADE_WARNED);
         Ok(())
     }
 
-    #[allow(dead_code)]
     fn fade_in(&self, _duration: Duration) -> Result<()> {
         Ok(())
     }
 }
 
-pub(crate) static FADE_WARNED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static FADE_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Logs the unsupported-fade warning the first time `flag` is unset. Returns whether it logged.
+fn warn_fade_unsupported_once(flag: &std::sync::atomic::AtomicBool) -> bool {
+    let first = !flag.swap(true, std::sync::atomic::Ordering::Relaxed);
+    if first {
+        log::warn!("screen fade is not supported by this backend; skipping");
+    }
+    first
+}
 
 pub fn detect_backend_kind(
     session_type: Option<&str>,
@@ -296,7 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn trait_default_fade_warns_only_once() {
+    fn fade_unsupported_warning_logs_only_once() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        assert!(warn_fade_unsupported_once(&flag));
+        assert!(!warn_fade_unsupported_once(&flag));
+        assert!(!warn_fade_unsupported_once(&flag));
+    }
+
+    #[test]
+    fn trait_default_fade_is_noop_success() {
         struct DummyBackend;
         impl Backend for DummyBackend {
             fn idle_time(&self) -> Result<Duration> { Ok(Duration::ZERO) }
@@ -307,15 +319,8 @@ mod tests {
             fn supports_focus(&self) -> bool { false }
         }
 
-        FADE_WARNED.store(false, std::sync::atomic::Ordering::Relaxed);
         let dummy = DummyBackend;
-
-        assert!(!FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
-        dummy.fade_out(Duration::from_millis(300)).unwrap();
-        assert!(FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
-
         dummy.fade_out(Duration::from_millis(300)).unwrap();
         dummy.fade_in(Duration::from_millis(300)).unwrap();
-        assert!(FADE_WARNED.load(std::sync::atomic::Ordering::Relaxed));
     }
 }
