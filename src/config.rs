@@ -34,6 +34,8 @@ pub struct Config {
     pub idle_threshold: Duration,
     #[serde(with = "humantime_serde")]
     pub notify_before: Duration,
+    #[serde(with = "humantime_serde")]
+    pub fade_duration: Duration,
     pub key: String,
     pub mode: Mode,
     pub window_match: String,
@@ -48,6 +50,7 @@ impl Default for Config {
             jitter: Duration::from_secs(20),
             idle_threshold: Duration::from_secs(180),
             notify_before: Duration::ZERO,
+            fade_duration: Duration::ZERO,
             key: "Shift_L".to_string(),
             mode: Mode::Mouse,
             window_match: "Omnissa Horizon Client".to_string(),
@@ -85,6 +88,7 @@ mod tests {
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
         assert_eq!(cfg.notify_before, Duration::ZERO);
+        assert_eq!(cfg.fade_duration, Duration::ZERO);
         assert_eq!(cfg.key, "Shift_L");
         assert_eq!(cfg.mode, Mode::Mouse);
         assert_eq!(cfg.window_match, "Omnissa Horizon Client");
@@ -113,6 +117,7 @@ mod tests {
         assert_eq!(cfg.mode, Mode::Key);
         assert_eq!(cfg.max_misses, 10);
         assert_eq!(cfg.notify_before, Duration::from_secs(30));
+        assert_eq!(cfg.fade_duration, Duration::ZERO);
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
         assert_eq!(cfg.key, "Shift_L");
@@ -162,5 +167,45 @@ mod tests {
             err_msg.contains("unknown_setting"),
             "error message '{err_msg}' should mention 'unknown_setting'"
         );
+    }
+
+    #[test]
+    fn fade_duration_defaults_to_zero() {
+        let cfg = Config::default();
+        assert_eq!(cfg.fade_duration, Duration::ZERO);
+    }
+
+    #[test]
+    fn parses_fade_duration() {
+        let toml_str = r#"
+            fade_duration = "300ms"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "rdpbeacon_test_fade_duration_{}.toml",
+            std::process::id()
+        ));
+        std::fs::write(&path, toml_str).unwrap();
+        let cfg = Config::load(Some(&path)).expect("loading valid fade_duration should succeed");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(cfg.fade_duration, Duration::from_millis(300));
+    }
+
+    #[test]
+    fn rejects_invalid_fade_duration() {
+        let toml_str = r#"
+            fade_duration = "abc"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "rdpbeacon_test_fade_duration_err_{}.toml",
+            std::process::id()
+        ));
+        std::fs::write(&path, toml_str).unwrap();
+        let res = Config::load(Some(&path));
+        let _ = std::fs::remove_file(&path);
+
+        assert!(res.is_err(), "expected error for invalid fade_duration");
     }
 }

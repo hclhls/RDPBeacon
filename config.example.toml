@@ -32,6 +32,15 @@ idle_threshold = "3m"
 # Default: "0s" (disabled)
 notify_before = "0s"
 
+# Duration of the screen fade-out and fade-in screen effect around beacon firing
+# to reduce visual annoyance. Set to "0ms" to disable.
+# When enabled, all monitors are faded to black before the beacon is sent (including
+# window focus switching) and faded back in immediately after.
+# Note: On Wayland, and on X11 without a running compositing manager, screen fade
+# is not supported and will be skipped with a warning.
+# Default: "0ms" (disabled)
+fade_duration = "0ms"
+
 # Keystroke to simulate when `mode = "key"`.
 # Supported values include Shift_L, Ctrl, Alt, standard function keys (F1-F24),
 # Space, Enter, Esc, Tab, Backspace, arrow keys. Shift_L is strongly recommended
