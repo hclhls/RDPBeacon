@@ -418,6 +418,20 @@ impl Backend for X11Backend {
             let _ = self.conn.flush();
         }
 
+        // Query the current root size so resolution changes after startup are respected.
+        let (width, height) = match self
+            .conn
+            .get_geometry(self.root)
+            .map_err(anyhow::Error::from)
+            .and_then(|c| c.reply().map_err(anyhow::Error::from))
+        {
+            Ok(g) => (g.width, g.height),
+            Err(e) => {
+                log::debug!("Failed to query root geometry, using cached size: {e}");
+                (self.width, self.height)
+            }
+        };
+
         let wid = self.conn.generate_id()?;
         let values = xproto::CreateWindowAux::new()
             .override_redirect(1)
@@ -430,8 +444,8 @@ impl Backend for X11Backend {
             self.root,
             0,
             0,
-            self.width,
-            self.height,
+            width,
+            height,
             0,
             xproto::WindowClass::INPUT_OUTPUT,
             self.visual,
@@ -469,10 +483,16 @@ impl Backend for X11Backend {
             return Err(e.into());
         }
 
-        if let Err(e) = self.conn.map_window(wid) {
+        // Check the request synchronously so asynchronous X errors are not silently dropped.
+        if let Err(e) = self
+            .conn
+            .map_window(wid)
+            .map_err(anyhow::Error::from)
+            .and_then(|c| c.check().map_err(anyhow::Error::from))
+        {
             let _ = self.conn.destroy_window(wid);
             let _ = self.conn.flush();
-            return Err(e.into());
+            return Err(e);
         }
         let _ = self.conn.flush();
 
