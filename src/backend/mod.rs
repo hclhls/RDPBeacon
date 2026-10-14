@@ -6,6 +6,8 @@ use crate::config::{BackendKind, Mode};
 pub mod fade;
 #[cfg(target_os = "linux")]
 pub mod wayland;
+#[cfg(target_os = "linux")]
+pub mod wayland_fade;
 #[cfg(any(windows, test))]
 pub mod windows;
 #[cfg(target_os = "linux")]
