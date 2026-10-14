@@ -1,18 +1,27 @@
 use anyhow::{Context, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 use x11rb::connection::Connection;
 use x11rb::protocol::screensaver;
+use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
 use x11rb::protocol::xproto::{
     self, Atom, AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask, Window,
 };
 use x11rb::protocol::xtest;
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
+use crate::backend::fade::{fade_alpha, FADE_STEP};
 use crate::backend::{Backend, WindowId};
 use crate::config::Mode;
 
 #[allow(unused_imports)]
 pub use crate::backend::title_matches;
+
+pub fn opacity_cardinal(alpha: u8) -> u32 {
+    (alpha as u32) * 0x0101_0101
+}
 
 pub fn keysym_from_str(key: &str) -> Option<u32> {
     let key_trimmed = key.trim();
@@ -61,9 +70,18 @@ pub fn keysym_from_str(key: &str) -> Option<u32> {
 pub struct X11Backend {
     conn: RustConnection,
     root: Window,
+    width: u16,
+    height: u16,
+    depth: u8,
+    visual: xproto::Visualid,
+    black_pixel: u32,
     atom_net_client_list: Atom,
     atom_net_active_window: Atom,
     atom_net_wm_name: Atom,
+    atom_net_wm_cm_s0: Atom,
+    atom_net_wm_window_opacity: Atom,
+    overlay: Mutex<Option<Window>>,
+    compositor_warned: AtomicBool,
 }
 
 impl X11Backend {
@@ -76,6 +94,11 @@ impl X11Backend {
             .get(screen_num)
             .ok_or_else(|| anyhow::anyhow!("No X11 screen for index {screen_num}"))?;
         let root = screen.root;
+        let width = screen.width_in_pixels;
+        let height = screen.height_in_pixels;
+        let depth = screen.root_depth;
+        let visual = screen.root_visual;
+        let black_pixel = screen.black_pixel;
 
         let atom_net_client_list = conn.intern_atom(false, b"_NET_CLIENT_LIST")?.reply()?.atom;
         let atom_net_active_window = conn
@@ -83,13 +106,27 @@ impl X11Backend {
             .reply()?
             .atom;
         let atom_net_wm_name = conn.intern_atom(false, b"_NET_WM_NAME")?.reply()?.atom;
+        let atom_net_wm_cm_s0 = conn.intern_atom(false, b"_NET_WM_CM_S0")?.reply()?.atom;
+        let atom_net_wm_window_opacity = conn
+            .intern_atom(false, b"_NET_WM_WINDOW_OPACITY")?
+            .reply()?
+            .atom;
 
         Ok(Self {
             conn,
             root,
+            width,
+            height,
+            depth,
+            visual,
+            black_pixel,
             atom_net_client_list,
             atom_net_active_window,
             atom_net_wm_name,
+            atom_net_wm_cm_s0,
+            atom_net_wm_window_opacity,
+            overlay: Mutex::new(None),
+            compositor_warned: AtomicBool::new(false),
         })
     }
 
@@ -357,6 +394,164 @@ impl Backend for X11Backend {
     fn supports_focus(&self) -> bool {
         true
     }
+
+    fn fade_out(&self, duration: Duration) -> Result<()> {
+        if duration.is_zero() {
+            return Ok(());
+        }
+
+        let owner = self
+            .conn
+            .get_selection_owner(self.atom_net_wm_cm_s0)?
+            .reply()?
+            .owner;
+        if owner == x11rb::NONE {
+            if !self.compositor_warned.swap(true, Ordering::Relaxed) {
+                log::warn!("No compositing manager running (_NET_WM_CM_S0 unowned); skipping screen fade");
+            }
+            return Ok(());
+        }
+
+        // Clean up any stale overlay first
+        if let Some(old) = self.overlay.lock().unwrap().take() {
+            let _ = self.conn.destroy_window(old);
+            let _ = self.conn.flush();
+        }
+
+        let wid = self.conn.generate_id()?;
+        let values = xproto::CreateWindowAux::new()
+            .override_redirect(1)
+            .background_pixel(self.black_pixel)
+            .event_mask(EventMask::NO_EVENT);
+
+        let create_res = self.conn.create_window(
+            self.depth,
+            wid,
+            self.root,
+            0,
+            0,
+            self.width,
+            self.height,
+            0,
+            xproto::WindowClass::INPUT_OUTPUT,
+            self.visual,
+            &values,
+        );
+        if let Err(e) = create_res {
+            return Err(e.into());
+        }
+
+        // Set empty input shape so user input passes through
+        if let Err(e) = self.conn.shape_rectangles(
+            SO::SET,
+            SK::INPUT,
+            xproto::ClipOrdering::UNSORTED,
+            wid,
+            0,
+            0,
+            &[],
+        ) {
+            let _ = self.conn.destroy_window(wid);
+            let _ = self.conn.flush();
+            return Err(e.into());
+        }
+
+        // Set initial opacity to 0
+        if let Err(e) = self.conn.change_property32(
+            xproto::PropMode::REPLACE,
+            wid,
+            self.atom_net_wm_window_opacity,
+            AtomEnum::CARDINAL,
+            &[opacity_cardinal(0)],
+        ) {
+            let _ = self.conn.destroy_window(wid);
+            let _ = self.conn.flush();
+            return Err(e.into());
+        }
+
+        if let Err(e) = self.conn.map_window(wid) {
+            let _ = self.conn.destroy_window(wid);
+            let _ = self.conn.flush();
+            return Err(e.into());
+        }
+        let _ = self.conn.flush();
+
+        // Save overlay so Drop or fade_in will clean it up
+        *self.overlay.lock().unwrap() = Some(wid);
+
+        let start = std::time::Instant::now();
+        loop {
+            let elapsed = start.elapsed();
+            let alpha = fade_alpha(elapsed, duration);
+            let card = opacity_cardinal(alpha);
+            if let Err(e) = self.conn.change_property32(
+                xproto::PropMode::REPLACE,
+                wid,
+                self.atom_net_wm_window_opacity,
+                AtomEnum::CARDINAL,
+                &[card],
+            ) {
+                let _ = self.conn.destroy_window(wid);
+                let _ = self.conn.flush();
+                *self.overlay.lock().unwrap() = None;
+                return Err(e.into());
+            }
+            let _ = self.conn.flush();
+            if elapsed >= duration {
+                break;
+            }
+            std::thread::sleep(FADE_STEP);
+        }
+
+        Ok(())
+    }
+
+    fn fade_in(&self, duration: Duration) -> Result<()> {
+        let wid = match self.overlay.lock().unwrap().take() {
+            Some(w) => w,
+            None => return Ok(()),
+        };
+
+        if duration.is_zero() {
+            let _ = self.conn.destroy_window(wid);
+            let _ = self.conn.flush();
+            return Ok(());
+        }
+
+        let start = std::time::Instant::now();
+        loop {
+            let elapsed = start.elapsed();
+            let alpha = 255 - fade_alpha(elapsed, duration);
+            let card = opacity_cardinal(alpha);
+            let _ = self.conn.change_property32(
+                xproto::PropMode::REPLACE,
+                wid,
+                self.atom_net_wm_window_opacity,
+                AtomEnum::CARDINAL,
+                &[card],
+            );
+            let _ = self.conn.flush();
+            if elapsed >= duration {
+                break;
+            }
+            std::thread::sleep(FADE_STEP);
+        }
+
+        let _ = self.conn.destroy_window(wid);
+        let _ = self.conn.flush();
+        Ok(())
+    }
+}
+
+impl Drop for X11Backend {
+    fn drop(&mut self) {
+        if let Ok(mut lock) = self.overlay.lock() {
+            if let Some(wid) = lock.take() {
+                let _ = self.conn.destroy_window(wid);
+                let _ = self.conn.flush();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -405,6 +600,18 @@ mod tests {
                     None
                 );
             }
+        }
+    }
+
+    #[test]
+    fn opacity_value_maps_alpha_to_cardinal() {
+        assert_eq!(opacity_cardinal(0), 0);
+        assert_eq!(opacity_cardinal(255), 0xffff_ffff);
+        let mut prev = 0;
+        for a in 1..=255 {
+            let curr = opacity_cardinal(a);
+            assert!(curr > prev, "expected monotonic increase at {a}");
+            prev = curr;
         }
     }
 }
