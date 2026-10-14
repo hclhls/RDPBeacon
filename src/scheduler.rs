@@ -63,29 +63,50 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
         return Ok(CycleOutcome::SkippedActive);
     }
 
-    let faded = if !cfg.fade_duration.is_zero() {
-        match b.fade_out(cfg.fade_duration) {
-            Ok(()) => true,
-            Err(e) => {
-                log::warn!("Failed to fade out screen: {e}");
-                false
-            }
-        }
-    } else {
-        false
-    };
+    // The guard restores the screen on every exit path, including early returns and panics.
+    let _fade_guard = FadeGuard::fade_out(b, cfg.fade_duration);
 
-    let beacon_res = send_with_focus(b, cfg, horizon_win, prev_window, supports_focus);
-
-    if faded {
-        if let Err(e) = b.fade_in(cfg.fade_duration) {
-            log::warn!("Failed to fade in screen: {e}");
-        }
-    }
-
-    beacon_res?;
+    send_with_focus(b, cfg, horizon_win, prev_window, supports_focus)?;
 
     Ok(CycleOutcome::Sent)
+}
+
+/// Fades the screen out on creation and back in on drop.
+struct FadeGuard<'a> {
+    backend: &'a dyn Backend,
+    duration: Duration,
+    active: bool,
+}
+
+impl<'a> FadeGuard<'a> {
+    fn fade_out(backend: &'a dyn Backend, duration: Duration) -> Self {
+        let active = if duration.is_zero() {
+            false
+        } else {
+            match backend.fade_out(duration) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("Failed to fade out screen: {e}");
+                    false
+                }
+            }
+        };
+        Self {
+            backend,
+            duration,
+            active,
+        }
+    }
+}
+
+impl Drop for FadeGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            if let Err(e) = self.backend.fade_in(self.duration) {
+                log::warn!("Failed to fade in screen: {e}");
+            }
+        }
+    }
 }
 
 fn send_with_focus(
@@ -302,6 +323,7 @@ mod tests {
         supports_focus: bool,
         fail_focus_on: Option<WindowId>,
         fail_send_beacon: bool,
+        panic_send_beacon: bool,
         fail_fade_out: bool,
         fail_fade_in: bool,
         calls: Arc<Mutex<Vec<MockCall>>>,
@@ -316,6 +338,7 @@ mod tests {
                 supports_focus: true,
                 fail_focus_on: None,
                 fail_send_beacon: false,
+                panic_send_beacon: false,
                 fail_fade_out: false,
                 fail_fade_in: false,
                 calls: Arc::new(Mutex::new(Vec::new())),
@@ -361,6 +384,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(MockCall::SendBeacon(mode, key.to_string()));
+            if self.panic_send_beacon {
+                panic!("simulated panic in send_beacon");
+            }
             if self.fail_send_beacon {
                 anyhow::bail!("synthetic beacon injection error");
             }
@@ -959,6 +985,23 @@ mod tests {
         let calls = mock.calls();
         assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
         assert!(calls.contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
+        assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
+    }
+
+    #[test]
+    fn fade_in_runs_when_send_beacon_panics() {
+        let mut mock = MockBackend::new();
+        mock.panic_send_beacon = true;
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = run_cycle(&mock, &cfg);
+        }));
+        assert!(res.is_err(), "expected panic inside run_cycle");
+
+        let calls = mock.calls();
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
         assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
     }
 }
