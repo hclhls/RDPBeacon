@@ -3,7 +3,7 @@ use rand::Rng;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, WindowId};
 use crate::config::Config;
 use crate::notify::{system_notifier, Notifier};
 
@@ -63,6 +63,38 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
         return Ok(CycleOutcome::SkippedActive);
     }
 
+    let faded = if !cfg.fade_duration.is_zero() {
+        match b.fade_out(cfg.fade_duration) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("Failed to fade out screen: {e}");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    let beacon_res = send_with_focus(b, cfg, horizon_win, prev_window, supports_focus);
+
+    if faded {
+        if let Err(e) = b.fade_in(cfg.fade_duration) {
+            log::warn!("Failed to fade in screen: {e}");
+        }
+    }
+
+    beacon_res?;
+
+    Ok(CycleOutcome::Sent)
+}
+
+fn send_with_focus(
+    b: &dyn Backend,
+    cfg: &Config,
+    horizon_win: WindowId,
+    prev_window: Option<WindowId>,
+    supports_focus: bool,
+) -> Result<()> {
     if supports_focus {
         if prev_window == Some(horizon_win) {
             log::debug!("Horizon window {horizon_win} is already focused");
@@ -87,7 +119,7 @@ pub fn run_cycle(b: &dyn Backend, cfg: &Config) -> Result<CycleOutcome> {
         b.send_beacon(cfg.mode, &cfg.key)?;
     }
 
-    Ok(CycleOutcome::Sent)
+    Ok(())
 }
 
 fn interruptible_sleep(duration: Duration, stop: &AtomicBool) -> bool {
@@ -259,6 +291,8 @@ mod tests {
         Focus(WindowId),
         SendBeacon(Mode, String),
         SupportsFocus,
+        FadeOut(Duration),
+        FadeIn(Duration),
     }
 
     struct MockBackend {
@@ -268,6 +302,8 @@ mod tests {
         supports_focus: bool,
         fail_focus_on: Option<WindowId>,
         fail_send_beacon: bool,
+        fail_fade_out: bool,
+        fail_fade_in: bool,
         calls: Arc<Mutex<Vec<MockCall>>>,
     }
 
@@ -280,6 +316,8 @@ mod tests {
                 supports_focus: true,
                 fail_focus_on: None,
                 fail_send_beacon: false,
+                fail_fade_out: false,
+                fail_fade_in: false,
                 calls: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -332,6 +370,22 @@ mod tests {
         fn supports_focus(&self) -> bool {
             self.calls.lock().unwrap().push(MockCall::SupportsFocus);
             self.supports_focus
+        }
+
+        fn fade_out(&self, duration: Duration) -> Result<()> {
+            self.calls.lock().unwrap().push(MockCall::FadeOut(duration));
+            if self.fail_fade_out {
+                anyhow::bail!("failed fade out");
+            }
+            Ok(())
+        }
+
+        fn fade_in(&self, duration: Duration) -> Result<()> {
+            self.calls.lock().unwrap().push(MockCall::FadeIn(duration));
+            if self.fail_fade_in {
+                anyhow::bail!("failed fade in");
+            }
+            Ok(())
         }
     }
 
@@ -790,5 +844,121 @@ mod tests {
         assert!(mock
             .calls()
             .contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
+    }
+
+    #[test]
+    fn fade_wraps_focus_and_beacon_in_order() {
+        let mock = MockBackend::new();
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let calls = mock.calls();
+        let active_idx = calls.iter().position(|c| matches!(c, MockCall::ActiveWindow)).unwrap();
+        let calls_after_active = &calls[active_idx + 1..];
+
+        assert_eq!(
+            calls_after_active,
+            &[
+                MockCall::FadeOut(Duration::from_millis(300)),
+                MockCall::Focus(100),
+                MockCall::SendBeacon(cfg.mode, cfg.key.clone()),
+                MockCall::Focus(200),
+                MockCall::FadeIn(Duration::from_millis(300)),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_fade_when_duration_is_zero() {
+        let mock = MockBackend::new();
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::ZERO;
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let calls = mock.calls();
+        assert!(!calls.iter().any(|c| matches!(c, MockCall::FadeOut(..) | MockCall::FadeIn(..))));
+    }
+
+    #[test]
+    fn no_fade_when_cycle_skipped() {
+        let mut mock = MockBackend::new();
+        mock.idle_time = Duration::from_secs(60);
+        mock.horizon_window = Some(100);
+        mock.active_window = Some(100);
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::SkippedActive);
+
+        let calls = mock.calls();
+        assert!(!calls.iter().any(|c| matches!(c, MockCall::FadeOut(..) | MockCall::FadeIn(..))));
+    }
+
+    #[test]
+    fn fade_in_runs_when_send_beacon_fails() {
+        let mut mock = MockBackend::new();
+        mock.fail_send_beacon = true;
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let res = run_cycle(&mock, &cfg);
+        assert!(res.is_err(), "expected error when send_beacon fails");
+
+        let calls = mock.calls();
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
+        assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
+    }
+
+    #[test]
+    fn fade_in_runs_when_focus_fails() {
+        let mut mock = MockBackend::new();
+        mock.fail_focus_on = Some(100);
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let res = run_cycle(&mock, &cfg);
+        assert!(res.is_err(), "expected error when focus fails");
+
+        let calls = mock.calls();
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
+        assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
+    }
+
+    #[test]
+    fn beacon_sent_when_fade_out_fails() {
+        let mut mock = MockBackend::new();
+        mock.fail_fade_out = true;
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let calls = mock.calls();
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
+        assert!(calls.contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
+        assert!(!calls.iter().any(|c| matches!(c, MockCall::FadeIn(..))));
+    }
+
+    #[test]
+    fn outcome_sent_when_fade_in_fails() {
+        let mut mock = MockBackend::new();
+        mock.fail_fade_in = true;
+        let mut cfg = Config::default();
+        cfg.fade_duration = Duration::from_millis(300);
+
+        let outcome = run_cycle(&mock, &cfg).unwrap();
+        assert_eq!(outcome, CycleOutcome::Sent);
+
+        let calls = mock.calls();
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
+        assert!(calls.contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
+        assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
     }
 }
