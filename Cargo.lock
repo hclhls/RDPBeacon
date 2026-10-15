@@ -838,7 +838,7 @@ dependencies = [
 
 [[package]]
 name = "rdpbeacon"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "anyhow",
  "clap",

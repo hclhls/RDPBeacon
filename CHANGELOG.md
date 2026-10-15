@@ -9,6 +9,16 @@ publishes the matching section as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-15
+
+### Added
+
+- Tray: **Enable fade effect** checkbox to switch the screen fade on or off while the daemon runs. It starts checked when `fade_duration` is non-zero; enabling it with `fade_duration = "0ms"` uses a 300ms fade. The choice applies from the next beacon and is not persisted.
+
+### Changed
+
+- The default `notify_before` is now `"10s"` (was `"0s"`), so a desktop notification appears 10 seconds before each beacon. Set `notify_before = "0s"` to keep the previous behavior.
+
 ## [0.6.2] - 2026-10-14
 
 ### Added
@@ -127,7 +137,8 @@ Initial public release.
 - TOML configuration (`config.example.toml`), Apache-2.0 license, and CI for
   Linux and Windows.
 
-[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/hclhls/RDPBeacon/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/hclhls/RDPBeacon/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/hclhls/RDPBeacon/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/hclhls/RDPBeacon/compare/v0.6...v0.6.1
 [0.6]: https://github.com/hclhls/RDPBeacon/compare/v0.5...v0.6
