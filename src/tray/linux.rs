@@ -1,5 +1,5 @@
 use super::{
-    ControlEvent, MenuModel, TrayHost, TrayView, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
+    ControlEvent, MenuModel, TrayHost, TrayView, FADE_ID, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
     REMINDER_BASE_ID,
 };
 use anyhow::Context;
@@ -97,6 +97,14 @@ impl ksni::Tray for LinuxTray {
                         .collect(),
                 }
                 .into()],
+                ..Default::default()
+            }
+            .into(),
+            CheckmarkItem {
+                label: "Enable fade effect".into(),
+                checked: self.menu.view.fade_enabled,
+                enabled,
+                activate: Box::new(|tray: &mut Self| tray.menu.activate(FADE_ID)),
                 ..Default::default()
             }
             .into(),
@@ -237,6 +245,7 @@ mod tests {
             logging_enabled: false,
             interval: Duration::from_secs(600),
             notify_before: Duration::ZERO,
+            fade_enabled: false,
             quitting: false,
         });
         assert!(matches!(&tray.menu()[1], ksni::MenuItem::Checkmark(item) if !item.checked));
@@ -253,6 +262,7 @@ mod tests {
             logging_enabled: false,
             interval: Duration::from_secs(300),
             notify_before: Duration::from_secs(30),
+            fade_enabled: true,
             quitting: false,
         });
         let menu = tray.menu();
@@ -278,5 +288,11 @@ mod tests {
         assert!(
             matches!(rx.recv().unwrap(), ControlEvent::SetNotifyBefore(d) if d.is_zero())
         );
+        let ksni::MenuItem::Checkmark(fade) = &menu[4] else {
+            panic!("Missing fade checkbox");
+        };
+        assert!(fade.checked);
+        (fade.activate)(&mut tray);
+        assert!(matches!(rx.recv().unwrap(), ControlEvent::SetFade(false)));
     }
 }

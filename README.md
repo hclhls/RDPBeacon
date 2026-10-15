@@ -18,7 +18,7 @@ A lightweight, cross-platform CLI daemon written in Rust that keeps logged-in **
 - **Cross-Platform**: First-class support for Linux (X11), Linux (Wayland), and Windows.
 - **Zero Caching**: Window lookup is re-evaluated every cycle, gracefully handling client restarts or window title changes.
 - **Graceful Shutdown**: Responsive to `SIGINT` / `Ctrl-C` even during sleep intervals.
-- **Tray Daemon**: `run --daemon` keeps running after the launching terminal closes. Use the local tray to enable file logging, adjust the beacon interval and reminder time, or quit on Linux and Windows.
+- **Tray Daemon**: `run --daemon` keeps running after the launching terminal closes. Use the local tray to enable file logging, adjust the beacon interval and reminder time, toggle the screen fade, or quit on Linux and Windows.
 
 ---
 
@@ -119,6 +119,10 @@ The tray menu provides:
 - **Reminder before beacon**: Radio submenu (`Off`, `10s`, `30s`, `1m`, plus the
   configured value if it is not a preset) that changes `notify_before` while
   running.
+- **Enable fade effect**: Toggle for the screen fade around each beacon. It starts
+  checked when `fade_duration` is non-zero; when enabled from the tray with
+  `fade_duration = "0ms"`, a 300ms fade is used. The change applies from the next
+  beacon and is not written to the config file.
 - **Quit**: Stops the worker after any current beacon and focus-restoration
   attempt finish, then removes the tray. Repeated clicks are harmless.
 
@@ -162,7 +166,7 @@ RDPBeacon can be configured using a TOML file. See [`config.example.toml`](confi
 | `interval` | duration | `"10m"` | Base interval between beacon cycles (e.g., `"10m"`, `"600s"`). |
 | `jitter` | duration | `"20s"` | Random variance added or subtracted to the interval (`interval ± jitter`). Sleep duration is clamped to a minimum of 1s. |
 | `idle_threshold` | duration | `"3m"` | Inactivity threshold before sending a beacon when the Horizon window is currently focused. If you are actively typing inside Horizon, the cycle is skipped. Background sessions are kept alive regardless. |
-| `notify_before` | duration | `"0s"` | Show a desktop notification this long before each beacon (D-Bus on Linux, tray balloon on Windows). `"0s"` disables it; if the wait is shorter than this value, the notice is shown immediately. |
+| `notify_before` | duration | `"10s"` | Show a desktop notification this long before each beacon (D-Bus on Linux, tray balloon on Windows). `"0s"` disables it; if the wait is shorter than this value, the notice is shown immediately. |
 | `fade_duration` | duration | `"0ms"` | Screen fade-out and fade-in duration around beacon firing to reduce visual distraction. `"0ms"` disables it. Wayland requires a compositor with `wlr-layer-shell` (Sway, Hyprland, KDE Plasma, COSMIC); GNOME and compositor-less X11 skip with a warning. |
 | `key` | string | `"Shift_L"` | Key to simulate when `mode = "key"`. Supports `Shift_L`, `Ctrl`, `Alt`, `F1`–`F24`, `Space`, `Enter`, `Tab`, `Esc`, arrow keys. (`Shift_L` is recommended as it produces no character and maps cleanly across standard 101/104-key PC layouts). |
 | `mode` | string | `"mouse"` | Beacon mode: `"mouse"` (nudges cursor +1 px and -1 px) or `"key"` (presses and releases `key` in Horizon). Mouse mode requires the pointer to be inside the Horizon desktop surface. |

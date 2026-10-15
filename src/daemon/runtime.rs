@@ -71,6 +71,7 @@ where
     let mut state = AppState::default();
     state.interval = cfg.interval;
     state.notify_before = cfg.notify_before;
+    state.fade_enabled = cfg.fade_enabled();
     tray.update(&state.view())?;
     let stop = Arc::new(AtomicBool::new(false));
     let (start_tx, start_rx) = mpsc::channel();
@@ -182,6 +183,12 @@ where
                     if !state.quitting {
                         timing.set_notify_before(notify_before);
                         state.notify_before = notify_before;
+                    }
+                }
+                ControlEvent::SetFade(enabled) => {
+                    if !state.quitting {
+                        timing.set_fade_enabled(enabled);
+                        state.fade_enabled = enabled;
                     }
                 }
                 ControlEvent::LoggingFailed(reason) => {

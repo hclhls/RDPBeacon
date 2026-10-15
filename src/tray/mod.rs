@@ -12,6 +12,7 @@ mod windows;
 
 const LOGGING_ID: u32 = 1;
 const QUIT_ID: u32 = 2;
+const FADE_ID: u32 = 3;
 const INTERVAL_BASE_ID: u32 = 100;
 const REMINDER_BASE_ID: u32 = 200;
 
@@ -78,6 +79,7 @@ impl MenuModel {
             LOGGING_ID if !self.view.quitting => {
                 ControlEvent::SetLogging(!self.view.logging_enabled)
             }
+            FADE_ID if !self.view.quitting => ControlEvent::SetFade(!self.view.fade_enabled),
             QUIT_ID => ControlEvent::Quit,
             id if !self.view.quitting && id >= REMINDER_BASE_ID => {
                 match reminder_options(self.view.notify_before).get((id - REMINDER_BASE_ID) as usize)
@@ -157,6 +159,7 @@ mod tests {
             logging_enabled: true,
             interval: Duration::from_secs(600),
             notify_before: Duration::ZERO,
+            fade_enabled: false,
             quitting: false,
         });
         menu.activate(LOGGING_ID);
@@ -167,6 +170,24 @@ mod tests {
         menu.activate(QUIT_ID);
         assert!(matches!(rx.recv().unwrap(), ControlEvent::Quit));
         menu.activate(99);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn fade_menu_toggles_confirmed_state() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut menu = MenuModel::new(tx);
+        menu.activate(FADE_ID);
+        assert!(matches!(rx.recv().unwrap(), ControlEvent::SetFade(true)));
+        assert!(!menu.view.fade_enabled);
+        let mut view = menu.view.clone();
+        view.fade_enabled = true;
+        menu.update(&view);
+        menu.activate(FADE_ID);
+        assert!(matches!(rx.recv().unwrap(), ControlEvent::SetFade(false)));
+        view.quitting = true;
+        menu.update(&view);
+        menu.activate(FADE_ID);
         assert!(rx.try_recv().is_err());
     }
 

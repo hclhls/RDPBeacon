@@ -1,6 +1,6 @@
 use super::callback::CallbackState;
 use super::{
-    ControlEvent, MenuModel, TrayHost, TrayView, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
+    ControlEvent, MenuModel, TrayHost, TrayView, FADE_ID, INTERVAL_BASE_ID, LOGGING_ID, QUIT_ID,
     REMINDER_BASE_ID,
 };
 use anyhow::Context;
@@ -196,6 +196,14 @@ unsafe fn show_menu(hwnd: HWND, view: &TrayView) -> anyhow::Result<u32> {
                 .map(|d| (super::reminder_label(*d), *d == view.notify_before)),
             !view.quitting,
         )?;
+        let mut fade_flags = MF_STRING;
+        if view.fade_enabled {
+            fade_flags |= MF_CHECKED;
+        }
+        if view.quitting {
+            fade_flags |= MF_DISABLED;
+        }
+        AppendMenuW(menu, fade_flags, FADE_ID as usize, w!("Enable fade effect"))?;
         AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
         AppendMenuW(menu, MF_STRING, QUIT_ID as usize, w!("Quit"))?;
         let mut point = POINT::default();

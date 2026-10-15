@@ -189,18 +189,32 @@ fn sleep_with_notice(
 pub struct LiveTiming {
     interval_ms: AtomicU64,
     notify_before_ms: AtomicU64,
+    fade_enabled: AtomicBool,
+    /// Duration applied while the fade is enabled.
+    fade_on_ms: AtomicU64,
 }
 
 impl LiveTiming {
+    /// Creates timing with the fade disabled; use [`LiveTiming::from_config`] to
+    /// honor the configured fade.
     pub fn new(interval: Duration, notify_before: Duration) -> Self {
         Self {
             interval_ms: AtomicU64::new(interval.as_millis() as u64),
             notify_before_ms: AtomicU64::new(notify_before.as_millis() as u64),
+            fade_enabled: AtomicBool::new(false),
+            fade_on_ms: AtomicU64::new(crate::config::DEFAULT_FADE_DURATION.as_millis() as u64),
         }
     }
 
     pub fn from_config(cfg: &Config) -> Self {
-        Self::new(cfg.interval, cfg.notify_before)
+        let timing = Self::new(cfg.interval, cfg.notify_before);
+        timing
+            .fade_on_ms
+            .store(cfg.enabled_fade_duration().as_millis() as u64, Ordering::Relaxed);
+        timing
+            .fade_enabled
+            .store(cfg.fade_enabled(), Ordering::Relaxed);
+        timing
     }
 
     pub fn interval(&self) -> Duration {
@@ -211,6 +225,19 @@ impl LiveTiming {
         Duration::from_millis(self.notify_before_ms.load(Ordering::Relaxed))
     }
 
+    pub fn fade_enabled(&self) -> bool {
+        self.fade_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Effective fade duration: zero while the fade is disabled.
+    pub fn fade_duration(&self) -> Duration {
+        if self.fade_enabled() {
+            Duration::from_millis(self.fade_on_ms.load(Ordering::Relaxed))
+        } else {
+            Duration::ZERO
+        }
+    }
+
     pub fn set_interval(&self, interval: Duration) {
         self.interval_ms
             .store(interval.as_millis() as u64, Ordering::Relaxed);
@@ -219,6 +246,10 @@ impl LiveTiming {
     pub fn set_notify_before(&self, notify_before: Duration) {
         self.notify_before_ms
             .store(notify_before.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    pub fn set_fade_enabled(&self, enabled: bool) {
+        self.fade_enabled.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -251,6 +282,7 @@ pub fn run_loop_live(
     while !stop.load(Ordering::Relaxed) {
         cfg.interval = timing.interval();
         cfg.notify_before = timing.notify_before();
+        cfg.fade_duration = timing.fade_duration();
         let cfg = &cfg;
         let sleep_dur = next_sleep(cfg, &mut rng);
         if !sleep_with_notice(sleep_dur, cfg.notify_before, notifier, stop) {
@@ -870,6 +902,69 @@ mod tests {
         assert!(mock
             .calls()
             .contains(&MockCall::SendBeacon(cfg.mode, cfg.key.clone())));
+    }
+
+    #[test]
+    fn live_timing_fade_follows_config_and_switch() {
+        let mut cfg = Config::default();
+        let timing = LiveTiming::from_config(&cfg);
+        assert!(!timing.fade_enabled());
+        assert_eq!(timing.fade_duration(), Duration::ZERO);
+        timing.set_fade_enabled(true);
+        assert_eq!(timing.fade_duration(), Duration::from_millis(300));
+        timing.set_fade_enabled(false);
+        assert_eq!(timing.fade_duration(), Duration::ZERO);
+
+        cfg.fade_duration = Duration::from_millis(500);
+        let timing = LiveTiming::from_config(&cfg);
+        assert!(timing.fade_enabled());
+        assert_eq!(timing.fade_duration(), Duration::from_millis(500));
+        timing.set_fade_enabled(false);
+        timing.set_fade_enabled(true);
+        assert_eq!(timing.fade_duration(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn run_loop_fades_only_when_switched_on() {
+        let mut cfg = Config::default();
+        cfg.interval = Duration::from_secs(1);
+        cfg.jitter = Duration::ZERO;
+        cfg.notify_before = Duration::ZERO;
+        cfg.max_misses = 0;
+        let beacon = MockCall::SendBeacon(cfg.mode, cfg.key.clone());
+
+        // Runs the loop until the first beacon was recorded, or a generous deadline passes.
+        let run_until_beacon = |timing: &LiveTiming| {
+            let mock = MockBackend::new();
+            let n = RecordingNotifier(Mutex::new(Vec::new()));
+            let stop = AtomicBool::new(false);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                    while !mock.calls().contains(&beacon) && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    stop.store(true, Ordering::Relaxed);
+                });
+                run_loop_live(&mock, &cfg, &stop, &n, timing).unwrap();
+            });
+            mock.calls()
+        };
+
+        let timing = LiveTiming::from_config(&cfg);
+        timing.set_fade_enabled(true);
+        let calls = run_until_beacon(&timing);
+        assert!(calls.contains(&beacon));
+        assert!(calls.contains(&MockCall::FadeOut(Duration::from_millis(300))));
+        assert!(calls.contains(&MockCall::FadeIn(Duration::from_millis(300))));
+
+        let timing = LiveTiming::from_config(&cfg);
+        let calls = run_until_beacon(&timing);
+        assert!(calls.contains(&beacon));
+        assert!(!calls
+            .iter()
+            .any(|c| matches!(c, MockCall::FadeOut(..) | MockCall::FadeIn(..))));
     }
 
     #[test]

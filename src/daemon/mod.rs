@@ -10,6 +10,7 @@ pub enum ControlEvent {
     SetLogging(bool),
     SetInterval(Duration),
     SetNotifyBefore(Duration),
+    SetFade(bool),
     Quit,
     TrayUnavailable(String),
     LoggingFailed(String),
@@ -31,6 +32,7 @@ pub struct AppState {
     pub logging_error: Option<String>,
     pub interval: Duration,
     pub notify_before: Duration,
+    pub fade_enabled: bool,
     quitting: bool,
     finished: bool,
 }
@@ -41,6 +43,7 @@ pub struct TrayView {
     pub logging_enabled: bool,
     pub interval: Duration,
     pub notify_before: Duration,
+    pub fade_enabled: bool,
     pub quitting: bool,
 }
 
@@ -50,6 +53,7 @@ impl Default for AppState {
         Self {
             interval: defaults.interval,
             notify_before: defaults.notify_before,
+            fade_enabled: defaults.fade_enabled(),
             worker: WorkerState::Starting,
             logging_enabled: false,
             logging_error: None,
@@ -75,6 +79,7 @@ impl AppState {
             logging_enabled: self.logging_enabled,
             interval: self.interval,
             notify_before: self.notify_before,
+            fade_enabled: self.fade_enabled,
             quitting: self.quitting,
         }
     }
@@ -124,6 +129,11 @@ mod tests {
     #[test]
     fn initial_state_has_logging_disabled() {
         assert!(!AppState::default().view().logging_enabled);
+    }
+
+    #[test]
+    fn initial_state_has_fade_disabled_by_default() {
+        assert!(!AppState::default().view().fade_enabled);
     }
 
     #[test]

@@ -29,8 +29,8 @@ idle_threshold = "3m"
 # Linux uses the org.freedesktop.Notifications D-Bus service; Windows uses a
 # tray balloon notification.
 # In tray daemon mode this can also be changed from the tray menu (not persisted).
-# Default: "0s" (disabled)
-notify_before = "0s"
+# Default: "10s"
+notify_before = "10s"
 
 # Duration of the screen fade-out and fade-in screen effect around beacon firing
 # to reduce visual annoyance. Set to "0ms" to disable.
@@ -39,6 +39,8 @@ notify_before = "0s"
 # Note: On Wayland the fade needs a compositor with wlr-layer-shell (Sway, Hyprland,
 # KDE Plasma, COSMIC). On GNOME, and on X11 without a running compositing manager,
 # the fade is skipped with a warning.
+# In tray daemon mode the fade can be switched on or off from the tray menu (not
+# persisted); switching it on while this is "0ms" uses a 300ms fade.
 # Default: "0ms" (disabled)
 fade_duration = "0ms"
 

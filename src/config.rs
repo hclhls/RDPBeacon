@@ -49,7 +49,7 @@ impl Default for Config {
             interval: Duration::from_secs(600),
             jitter: Duration::from_secs(20),
             idle_threshold: Duration::from_secs(180),
-            notify_before: Duration::ZERO,
+            notify_before: Duration::from_secs(10),
             fade_duration: Duration::ZERO,
             key: "Shift_L".to_string(),
             mode: Mode::Mouse,
@@ -60,7 +60,24 @@ impl Default for Config {
     }
 }
 
+/// Fade duration used when the fade is enabled from the tray but `fade_duration` is zero.
+pub const DEFAULT_FADE_DURATION: Duration = Duration::from_millis(300);
+
 impl Config {
+    /// Whether the fade starts enabled: true when `fade_duration` is non-zero.
+    pub fn fade_enabled(&self) -> bool {
+        !self.fade_duration.is_zero()
+    }
+    /// Fade duration to use whenever the fade is switched on: the configured value,
+    /// or [`DEFAULT_FADE_DURATION`] when the configuration disables it.
+    pub fn enabled_fade_duration(&self) -> Duration {
+        if self.fade_duration.is_zero() {
+            DEFAULT_FADE_DURATION
+        } else {
+            self.fade_duration
+        }
+    }
+
     pub fn load(path: Option<&Path>) -> anyhow::Result<Self> {
         let Some(path) = path else {
             return Ok(Self::default());
@@ -87,7 +104,7 @@ mod tests {
         assert_eq!(cfg.interval, Duration::from_secs(600));
         assert_eq!(cfg.jitter, Duration::from_secs(20));
         assert_eq!(cfg.idle_threshold, Duration::from_secs(180));
-        assert_eq!(cfg.notify_before, Duration::ZERO);
+        assert_eq!(cfg.notify_before, Duration::from_secs(10));
         assert_eq!(cfg.fade_duration, Duration::ZERO);
         assert_eq!(cfg.key, "Shift_L");
         assert_eq!(cfg.mode, Mode::Mouse);
@@ -167,6 +184,14 @@ mod tests {
             err_msg.contains("unknown_setting"),
             "error message '{err_msg}' should mention 'unknown_setting'"
         );
+    }
+
+    #[test]
+    fn enabled_fade_duration_falls_back_when_config_is_zero() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.enabled_fade_duration(), Duration::from_millis(300));
+        cfg.fade_duration = Duration::from_millis(500);
+        assert_eq!(cfg.enabled_fade_duration(), Duration::from_millis(500));
     }
 
     #[test]
